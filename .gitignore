@@ -90,3 +90,17 @@ dash_excalidraw/metadata.json
 .env
 .env.local
 .env.*.local
+# =====================================================================
+# Docs-site runtime state (never committed)
+# =====================================================================
+# Written by lib/analytics_tracker.py and lib/satellite_reporter.py while
+# the site is running. They are per-instance ledgers, not source: committing
+# one publishes visitor data and guarantees a merge conflict on every deploy.
+visitor_analytics.json
+visitor_analytics.json.lock
+visitor_analytics.json.tmp
+satellite_traffic.jsonl
+.satellite_traffic.jsonl.*
+
+# Generated social cards — the real one is uploaded to cdn.2plot.ai by hand.
+build/social-cards/
