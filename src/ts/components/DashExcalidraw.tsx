@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
+    CaptureUpdateAction,
     Excalidraw,
     exportToBlob,
     exportToCanvas,
@@ -7,11 +8,12 @@ import {
     restoreElements,
     serializeAsJSON,
 } from '@excalidraw/excalidraw';
-// NOTE: Excalidraw 0.17.x bundles its CSS into the JS artifact, so no
-// explicit CSS import is needed. If you upgrade the pin to `^0.18.0`,
-// re-enable the following line (the 0.18 ESM build exposes a standalone
-// stylesheet that must be imported manually):
-//     import '@excalidraw/excalidraw/index.css';
+// Excalidraw 0.18 ships its stylesheet as a separate `exports` entry rather
+// than inlining it into the JS artifact the way 0.17.x did. Without this
+// import the canvas mounts but renders with no toolbar chrome at all.
+// The style-loader chain in webpack.config.js (insertAtTop) inlines it into
+// the bundle so Dash apps need no extra external_stylesheets entry.
+import '@excalidraw/excalidraw/index.css';
 
 import {DashComponentProps} from '../props';
 
@@ -72,6 +74,14 @@ type CommandShape = {
     type: CommandType;
     payload?: Record<string, any>;
 };
+
+/* -------------------------------------------------------------------------
+ *  One-time deprecation notices. Module scope on purpose: a per-instance
+ *  flag would re-warn for every canvas on a multi-canvas page, and a
+ *  per-dispatch warn would flood the console on a collaborative session.
+ * ------------------------------------------------------------------------- */
+let warnedCommitToHistory = false;
+let warnedBadCaptureUpdate = false;
 
 type Props = {
     // ---- sizing ---------------------------------------------------------
@@ -1197,34 +1207,110 @@ const DashExcalidraw = (props: Props) => {
             try {
                 switch (type) {
                     case 'updateScene': {
+                        const scenePayload: Record<string, any> = {
+                            ...(payload || {}),
+                        };
+
+                        /* ---- history semantics -------------------------
+                         * 0.17 left history untouched when no flag was
+                         * given. 0.18 defaults to EVENTUALLY, which folds
+                         * the update into the NEXT captured action — so a
+                         * user's first undo after a Python-dispatched push
+                         * would also roll back their own prior edit.
+                         * Nothing errors and nothing warns; the behaviour
+                         * just changes. We default to IMMEDIATELY: a
+                         * dispatched scene push is a deliberate edit and
+                         * should undo as one discrete step.
+                         */
+                        if ('commitToHistory' in scenePayload) {
+                            if (!warnedCommitToHistory) {
+                                warnedCommitToHistory = true;
+                                console.warn(
+                                    '[DashExcalidraw] `commitToHistory` was removed in ' +
+                                        'Excalidraw 0.18 and is being translated to ' +
+                                        '`captureUpdate`. Pass captureUpdate as ' +
+                                        '"IMMEDIATELY", "NEVER" or "EVENTUALLY" instead.',
+                                );
+                            }
+                            if (scenePayload.captureUpdate === undefined) {
+                                scenePayload.captureUpdate = scenePayload
+                                    .commitToHistory
+                                    ? 'IMMEDIATELY'
+                                    : 'NEVER';
+                            }
+                            delete scenePayload.commitToHistory;
+                        }
+
+                        const requestedCapture = scenePayload.captureUpdate;
+                        // Explicit allowlist rather than an object index:
+                        // `CaptureUpdateAction[x]` with an attacker- or
+                        // typo-supplied `x` such as "constructor" returns a
+                        // truthy function, which would sail through the
+                        // fallback check below and reach Excalidraw.
+                        const CAPTURE_VALUES: Record<string, string> = {
+                            IMMEDIATELY: CaptureUpdateAction.IMMEDIATELY,
+                            NEVER: CaptureUpdateAction.NEVER,
+                            EVENTUALLY: CaptureUpdateAction.EVENTUALLY,
+                        };
+                        const resolvedCapture =
+                            requestedCapture === undefined
+                                ? CaptureUpdateAction.IMMEDIATELY
+                                : Object.prototype.hasOwnProperty.call(
+                                      CAPTURE_VALUES,
+                                      requestedCapture,
+                                  )
+                                ? CAPTURE_VALUES[requestedCapture]
+                                : undefined;
+
+                        if (requestedCapture !== undefined && !resolvedCapture) {
+                            // Do not silently accept a typo — it would look
+                            // like the caller's history choice took effect.
+                            if (!warnedBadCaptureUpdate) {
+                                warnedBadCaptureUpdate = true;
+                                console.warn(
+                                    `[DashExcalidraw] Unknown captureUpdate ` +
+                                        `"${requestedCapture}". Expected "IMMEDIATELY", ` +
+                                        `"NEVER" or "EVENTUALLY". Falling back to ` +
+                                        `"IMMEDIATELY".`,
+                                );
+                            }
+                        }
+                        scenePayload.captureUpdate =
+                            resolvedCapture || CaptureUpdateAction.IMMEDIATELY;
+
+                        /* ---- collaborators ----------------------------
+                         * A TOP-LEVEL SceneData field in 0.18; 0.17 read it
+                         * off appState. Accept either spelling from Python
+                         * and normalise to a top-level Map — Excalidraw
+                         * iterates it during render, so a plain JSON object
+                         * makes `Map.forEach` throw.
+                         */
+                        const rawCollaborators =
+                            scenePayload.collaborators ??
+                            scenePayload.appState?.collaborators;
+
+                        if (rawCollaborators) {
+                            scenePayload.collaborators =
+                                rawCollaborators instanceof Map
+                                    ? rawCollaborators
+                                    : new Map(Object.entries(rawCollaborators));
+                        }
+                        if (
+                            scenePayload.appState &&
+                            'collaborators' in scenePayload.appState
+                        ) {
+                            const {
+                                collaborators: _movedToTopLevel,
+                                ...restAppState
+                            } = scenePayload.appState;
+                            scenePayload.appState = restAppState;
+                        }
+
                         // Normalize any incoming elements through
                         // `restoreElements` so text baselines, autoResize,
                         // version ids, and other internals are populated.
                         // Without this, AI-generated text elements render
                         // invisibly until the user clicks / resizes them.
-                        const scenePayload: Record<string, any> = {
-                            ...(payload || {}),
-                        };
-
-                        // Excalidraw stores `appState.collaborators` as a
-                        // `Map<string, Collaborator>`, but Python sends it
-                        // as a plain JSON object. Converting prevents
-                        // `Map.forEach` from blowing up during render.
-                        const appStatePayload = scenePayload.appState;
-                        if (
-                            appStatePayload &&
-                            appStatePayload.collaborators &&
-                            !(appStatePayload.collaborators instanceof Map) &&
-                            typeof appStatePayload.collaborators === 'object'
-                        ) {
-                            scenePayload.appState = {
-                                ...appStatePayload,
-                                collaborators: new Map(
-                                    Object.entries(appStatePayload.collaborators),
-                                ),
-                            };
-                        }
-
                         if (
                             Array.isArray(scenePayload.elements) &&
                             scenePayload.elements.length > 0

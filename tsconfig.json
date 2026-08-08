@@ -7,7 +7,11 @@
     "esModuleInterop": true,
     "target": "ES2020",
     "module": "ESNext",
-    "moduleResolution": "node",
+    // Excalidraw 0.18 dropped support for "node"/"node10" resolution: its
+    // types are reachable only through the package "exports" map, which
+    // classic node resolution does not read. Leaving this as "node" fails
+    // with TS2307 "Cannot find module '@excalidraw/excalidraw'".
+    "moduleResolution": "bundler",
     "lib": ["DOM", "DOM.Iterable", "ES2020"],
     "strict": false,
     "allowSyntheticDefaultImports": true,

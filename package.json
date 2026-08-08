@@ -21,7 +21,7 @@
     "format": "prettier --write src --ignore-path=.prettierignore"
   },
   "dependencies": {
-    "@excalidraw/excalidraw": "^0.17.6"
+    "@excalidraw/excalidraw": "0.18.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.11",
