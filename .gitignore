@@ -1,0 +1,92 @@
+# =====================================================================
+# Claude Code
+# =====================================================================
+# The whole folder stays local. It holds agent definitions, skills, the
+# housekeeper's scratchpad and machine-local settings — none of which are
+# part of the published component or the docs site.
+.claude/
+
+# =====================================================================
+# Python
+# =====================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.tox/
+.mypy_cache/
+
+# =====================================================================
+# Node / Webpack
+# =====================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
+.build_cache
+*.tgz
+.yarn-integrity
+
+# Generated component bundle output
+#
+# NOTE: `dash_excalidraw/dash_excalidraw.js` is deliberately TRACKED, not
+# ignored. The release workflow gates on `git log -1 --format=%ct` against
+# that path; for an untracked file that expands to an empty string and the
+# comparison is a bash syntax error, not a skipped check. Tracking it also
+# keeps `pip install git+...` and `pip install -e .` working without npm.
+# Rebuild and commit the bundle only in release-prep commits.
+dash_excalidraw/dash_excalidraw.js.map
+
+# `dash-generate-components` byproduct. Not shipped in the wheel, and CI
+# asserts it is absent from the built artifact.
+dash_excalidraw/metadata.json
+
+# =====================================================================
+# Editor & OS
+# =====================================================================
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.DS_Store
+*.swp
+
+# Env
+.env
+.env.local
+.env.*.local

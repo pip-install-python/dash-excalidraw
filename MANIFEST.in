@@ -1,0 +1,5 @@
+recursive-include dash_excalidraw/** *.js *.css *.json *.html *.map
+prune tests
+prune pages
+prune .claude
+prune .venv

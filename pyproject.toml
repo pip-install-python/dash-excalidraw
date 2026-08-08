@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dash-excalidraw"
+version = "0.1.0"
+description = "Excalidraw drawing component for Dash"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "Pip Install Python", email = "pipinstallpython@gmail.com" }]
+dependencies = [
+    "dash>=3.0.3",
+]
+classifiers = [
+    "Framework :: Dash",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/pip-install-python/dash-excalidraw"
+Source = "https://github.com/pip-install-python/dash-excalidraw"
+Issues = "https://github.com/pip-install-python/dash-excalidraw/issues"
+
+[project.optional-dependencies]
+demo = [
+    "dash-mantine-components>=2.6.0",
+]
+ai = [
+    "anthropic>=0.40.0",
+    "google-genai>=0.3.0",
+]
+colab = [
+    "flask-socketio>=5.3.0",
+    "dash-socketio>=1.1.1",
+    "python-socketio>=5.0",
+]
+dev = [
+    "dash[dev]>=3.0.3",
+    "wheel",
+    "build",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["dash_excalidraw*"]
+
+[tool.setuptools.package-data]
+dash_excalidraw = ["*.js", "*.js.map", "*.json"]

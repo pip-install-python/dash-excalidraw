@@ -1,0 +1,34 @@
+# dependencies
+/node_modules
+
+# Python packaging
+/dist
+/build
+/*.egg-info
+/dash_excalidraw.egg-info
+__pycache__/
+*.pyc
+
+# testing
+/coverage
+/.pytest_cache
+
+# misc
+.DS_Store
+.env
+.env.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Development folders
+/tests
+/pages
+/.venv
+/.claude
+/.idea
+app.py
+usage.py
+CHANGELOG.md
+REBUILD.md
