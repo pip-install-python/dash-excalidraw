@@ -60,7 +60,12 @@ RULE_W = 6             # the accent bar under the brand
 # chrome and the install splash cannot disagree.
 BG_TOP = (26, 27, 30)        # #1a1b1e — manifest background_color
 BG_BOTTOM = (17, 20, 26)     # a shade deeper, for a gradient with a direction
-ACCENT = (18, 184, 134)      # #12B886 — manifest theme_color
+# #6741d9 — matches PRIMARY_COLOR in lib/constants.py, the `theme_color` in
+# assets/favicon/site.webmanifest, the `theme-color` meta in
+# templates/index.html, and the mark drawn by scripts/make_brand_assets.py.
+# The template's teal was inherited: a violet mark beside a teal rule reads as
+# two brands sharing one card.
+ACCENT = (103, 65, 217)
 TEXT = (245, 246, 247)
 MUTED = (150, 158, 168)
 

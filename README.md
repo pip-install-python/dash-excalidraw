@@ -1,297 +1,324 @@
+<div align="center">
+
+<a href="https://2plot.ai">
+  <img src="https://cdn.2plot.ai/github_assets/android-chrome-512x512.png" alt="dash-excalidraw" width="120">
+  <img src="https://cdn.2plot.ai/github_assets/dark_mode_2plot.png" alt="2plot.ai" width="300">
+</a>
+
+
 # dash-excalidraw
 
-[Excalidraw](https://excalidraw.com/) drawing canvas for [Dash](https://dash.plotly.com/) 3+.
+**dash-excalidraw — Excalidraw drawing canvas for Dash**
 
-- Excalidraw `0.18.x` — elbow arrows, flowchart shortcuts, scene search, image cropping, element linking, command palette.
-- Dash `3.0.3+`, Python `3.9+`, React `18.3.1`.
-- JSON-safe prop surface: every prop round-trips cleanly through Dash callbacks.
-- Imperative actions (export, scene updates, tool selection, …) via a `command`/`lastExport` round-trip.
+The [Excalidraw](https://excalidraw.com/) whiteboard as a first-class component for [Plotly Dash](https://dash.plotly.com) 3 and 4.
 
-See [`REBUILD.md`](./REBUILD.md) for the full rationale behind this rebuild.
+Every prop JSON-serializable · events arrive as timestamped snapshot props · imperative actions via a `command`/`lastExport` round-trip · image externalization built in · no `clientside_callback` required for anything.
+
+[![PyPI version](https://img.shields.io/pypi/v/dash-excalidraw?color=blue)](https://pypi.org/project/dash-excalidraw/)
+[![Python](https://img.shields.io/pypi/pyversions/dash-excalidraw)](https://pypi.org/project/dash-excalidraw/)
+[![Dash 3+](https://img.shields.io/badge/Dash-3%2B%20%7C%204.x-1a1a2e?logo=plotly&logoColor=white)](https://dash.plotly.com/)
+[![Excalidraw 0.18.1](https://img.shields.io/badge/Excalidraw-0.18.1-6741d9)](https://github.com/excalidraw/excalidraw)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/WEnZR35mrK)
+[![YouTube](https://img.shields.io/badge/YouTube-%402plotai-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/channel/UC6Bmo0t0ZUpU_xKBYW0bJuQ)
+
+**[Documentation](https://excalidraw.2plot.dev)** · [Discord](https://discord.gg/WEnZR35mrK) · [YouTube](https://www.youtube.com/channel/UC6Bmo0t0ZUpU_xKBYW0bJuQ) · [GitHub](https://github.com/pip-install-python/dash-excalidraw)
+
+<br/>
+
+<a href="https://excalidraw.2plot.dev">
+  <img src="https://cdn.2plot.ai/github_assets/excalidraw.2plot.dev.png" alt="dash-excalidraw running live at excalidraw.2plot.dev" width="880">
+</a>
+
+_Live at **[excalidraw.2plot.dev](https://excalidraw.2plot.dev)** — every canvas on the docs site is a running Dash app._
+
+<br/>
+
+_Maintained by **[Pip Install Python LLC](https://github.com/2plotai)**._
+
+</div>
 
 ---
 
-## Install
+## Overview
+
+Excalidraw is a React application with a large imperative API. Wrapping it for Dash means
+answering one question honestly: **what crosses the Python/JavaScript bridge?**
+
+Only JSON crosses. Functions, RegExps and class instances do not. Most wrappers give up at
+that point and hand you a `clientside_callback` for anything interesting. This one doesn't —
+it translates the whole surface into three JSON-safe patterns:
+
+| Upstream shape | What Python sees | Why |
+|---|---|---|
+| Callbacks (`onPaste`, `onPointerUpdate`, …) | **Snapshot props** — `lastPaste`, `lastPointerMove`, … each carrying a `timestamp` | A callback cannot be serialized. A record of it firing can. The timestamp lets you dedupe. |
+| Imperative methods (`updateScene`, `exportToSvg`, …) | **`command`** — `{id, type, payload}`, dispatched once per unique `id` | One prop covers twelve methods, and re-renders can't re-fire a command. |
+| Async results (exports) | **`lastExport`**, keyed by the `id` you dispatched | Exports resolve out of order under load. The id is how you correlate. |
+| `validateEmbeddable` RegExp | A **list of glob strings**, compiled to case-insensitive RegExps on the JS side | A RegExp has no JSON representation. `"*.youtube.com"` does. |
+
+The result is that a Dash developer writes ordinary `@callback`s and never touches
+JavaScript.
+
+## Installation
 
 ```bash
 pip install dash-excalidraw
 ```
 
-Optionally, for the showcase app:
+Nothing else is required — the Excalidraw bundle, its stylesheet and its UI font ship
+inside the wheel as a single self-contained JavaScript file. There is no CDN dependency at
+load time, no `external_stylesheets` entry to add, and no build step for consumers.
 
-```bash
-pip install "dash-excalidraw[demo]"
-```
-
-## Quickstart
+## Quick Start
 
 ```python
-from dash import Dash
+from dash import Dash, Input, Output, callback, html
 from dash_excalidraw import DashExcalidraw
 
 app = Dash(__name__)
-app.layout = DashExcalidraw(id="canvas", height="600px")
+
+app.layout = html.Div([
+    DashExcalidraw(id="canvas", height="600px"),
+    html.Pre(id="count"),
+])
+
+
+@callback(Output("count", "children"), Input("canvas", "elements"))
+def show(elements):
+    return f"{len(elements or [])} elements on the canvas"
+
 
 if __name__ == "__main__":
     app.run(debug=True)
 ```
 
-## Running the showcase
+Driving the canvas from Python is the same idea in reverse — write a `command`:
+
+```python
+import uuid
+from dash import Input, Output, callback
+from dash_excalidraw import DashExcalidraw
+
+
+@callback(
+    Output("canvas", "command"),
+    Input("seed", "n_clicks"),
+    prevent_initial_call=True,
+)
+def seed(_):
+    return {
+        # A NEW id every dispatch. The component dispatches once per unique
+        # id, so re-sending the same one is a silent no-op.
+        "id": str(uuid.uuid4()),
+        "type": "updateScene",
+        "payload": {
+            "elements": [
+                {"type": "rectangle", "x": 100, "y": 100,
+                 "width": 200, "height": 120, "id": "r1"},
+            ],
+        },
+    }
+```
+
+## Documentation
+
+### 📚 **[excalidraw.2plot.dev](https://excalidraw.2plot.dev)**
+
+Thirteen pages, each one a running Dash app you can draw on: basic usage, `initialData`,
+theming, view modes, `UIOptions`, events, command dispatch, export, persistence, library,
+collaboration, file uploads and AI scene generation.
+
+Append `/llms.txt` to any page URL for the machine-readable Markdown of that page — the
+whole site is built to be readable by agents as well as people.
+
+To run the docs site locally:
 
 ```bash
-pip install -e '.[demo,dev]'
-npm install
-npm run build       # builds the JS bundle + regenerates DashExcalidraw.py
-python app.py
+pip install -r requirements.txt
+# markdown2dash pins gunicorn<22, against the CVE-driven gunicorn>=23 floor in
+# requirements.txt. pip cannot resolve both, so it installs without its
+# dependency graph — every one of its real dependencies is already pinned there.
+pip install --no-deps markdown2dash==0.1.2
+python run.py
 ```
 
-Then open <http://localhost:8050>. Each page under `pages/` demonstrates a single feature:
+## The prop surface
 
-| Page | What it shows |
-|---|---|
-| `/basic` | Bare component with default props |
-| `/initial-data` | Seeding elements, appState, and library on mount |
-| `/theming` | `theme='light' | 'dark'` |
-| `/view-modes` | `viewModeEnabled`, `zenModeEnabled`, `gridModeEnabled` |
-| `/ui-options` | `UIOptions.canvasActions`, `welcomeScreen`, `tools.image` |
-| `/events` | `lastPointerDown/Up/Move`, `lastScrollChange`, `lastPaste`, `lastLinkOpen` |
-| `/commands` | Imperative `updateScene`, `setActiveTool`, `setToast`, `toggleSidebar`, … |
-| `/export` | `exportToSvg` / `exportToBlob` / `exportToCanvas` round-trip |
-| `/persistence` | `dcc.Store` autosave + restore via `updateScene` command |
-| `/library` | `lastLibraryChange` + `updateLibrary` command |
-| `/collaboration` | `isCollaborating` and `appState.collaborators` |
-| `/file-uploads` | Externalize image blobs to HTTP URLs; strip base64 from JSON |
+38 props. Grouped by what they're for:
 
----
-
-## Prop catalog
-
-### Sizing
-
-| Prop | Type | Default | Notes |
-|---|---|---|---|
-| `width` | `str` | `"100%"` | CSS value for the container |
-| `height` | `str` | `"600px"` | Excalidraw fills its parent |
-
-### Seeding the scene
+### Sizing and seeding
 
 | Prop | Type | Notes |
 |---|---|---|
-| `initialData` | `dict` | `{elements, appState, files, libraryItems, scrollToContent}`. Consumed once on mount. Use `command: updateScene` for post-mount changes. |
+| `width`, `height` | `str` | CSS values. `height` is the one you'll change. |
+| `initialData` | `dict` | `{elements, appState, files, libraryItems, scrollToContent}`. **Mount-only** — see the gotcha below. |
 
-### Output state (read-only from Python)
+### Output state — read-only from Python
 
-These props are written by the component via `setProps`; do not write to them from Python.
+Written by the component via `setProps` on every scene change.
 
-| Prop | Type | Notes |
-|---|---|---|
-| `elements` | `list` | Current element array |
-| `appState` | `dict` | Full serializable appState (zoom, scroll, active tool, collaborators, …) |
-| `files` | `dict` | Binary file entries (images) |
-| `serializedData` | `str` | Canonical Excalidraw JSON envelope — stream to `dcc.Store` for persistence |
-| `externalizedSerializedData` | `str` | Same envelope, inline `data:` URIs stripped to `null`. Safe to persist without base64 bloat; pair with `replaceFiles` for external URLs |
-| `sceneVersion` | `int` | Monotonic version counter from `getSceneVersion()` |
-
-### Editor config (declarative)
-
-| Prop | Type | Default |
-|---|---|---|
-| `viewModeEnabled` | `bool` | `False` |
-| `zenModeEnabled` | `bool` | `False` |
-| `gridModeEnabled` | `bool` | `False` |
-| `isCollaborating` | `bool` | `False` |
-| `theme` | `"light"` \| `"dark"` | `"light"` |
-| `name` | `str` | — |
-| `langCode` | `str` | `"en"` |
-| `libraryReturnUrl` | `str` | — |
-| `detectScroll` | `bool` | `True` |
-| `handleKeyboardGlobally` | `bool` | `True` |
-| `autoFocus` | `bool` | `True` |
-
-### UIOptions
-
-```python
-UIOptions={
-    "welcomeScreen": False,
-    "canvasActions": {
-        "changeViewBackgroundColor": True,
-        "clearCanvas": True,
-        "export": True,
-        "loadScene": True,
-        "saveToActiveFile": True,
-        "saveAsImage": True,
-        "toggleTheme": True,
-    },
-    "tools": {"image": True},
-    "dockedSidebarBreakpoint": 960,
-}
-```
-
-### Embeddable validation (no RegExp across the bridge)
-
-Pass `True` / `False` / or a list of domain-glob strings. The component compiles them to case-insensitive `RegExp`s:
-
-```python
-validateEmbeddable=["*.youtube.com", "excalidraw.com", "*.github.com"]
-```
-
-### Event snapshot props
-
-All written via `setProps`, carrying a `timestamp` so you can dedupe.
-
-| Prop | Payload |
+| Prop | What it holds |
 |---|---|
-| `lastPointerDown` | `{timestamp, activeTool, pointer}` |
-| `lastPointerUp` | `{timestamp, activeTool, pointer}` |
-| `lastPointerMove` | `{timestamp, pointer, button}` — throttled by `pointerMoveThrottleMs` |
-| `lastScrollChange` | `{timestamp, scrollX, scrollY}` — throttled by `scrollThrottleMs` |
-| `lastPaste` | `{timestamp, data}` |
-| `lastLibraryChange` | `{timestamp, items}` |
-| `lastLinkOpen` | `{timestamp, elementId, url}` |
-| `lastExport` | `{timestamp, id, type, result, error?}` — see "Command dispatch" |
-| `lastFileAdded` | `{timestamp, fileId, mimeType, dataURL, size}` — fires once per new image (see "Images & files at scale") |
+| `elements` | The current element array |
+| `appState` | View background, zoom, scroll, grid/zen mode, theme, active tool |
+| `files` | The binary-file map (`fileId → {dataURL, mimeType, …}`) |
+| `serializedData` | The canonical Excalidraw JSON envelope, as a string |
+| `externalizedSerializedData` | Same envelope with every inline `data:` URI stripped to `null` — **persist this one** |
+| `sceneVersion` | Cheap change detector; compare instead of diffing `elements` |
 
-Throttles: `pointerMoveThrottleMs` (default `50`), `scrollThrottleMs` (default `100`).
+### Editor configuration — declarative
 
-### Command dispatch
+`viewModeEnabled`, `zenModeEnabled`, `gridModeEnabled`, `isCollaborating`, `theme`
+(`"light"`/`"dark"`), `name`, `langCode`, `libraryReturnUrl`, `detectScroll`,
+`handleKeyboardGlobally`, `autoFocus`, `interceptLinkOpens`, `hideExcalidrawLinks`,
+plus `UIOptions` and throttle controls (`pointerMoveThrottleMs`, `scrollThrottleMs`).
 
-Write to `command` to trigger an imperative action. Each command must carry a unique `id` — the component de-duplicates on `id` and clears the prop (`None`) once the action completes.
+### Event snapshots
 
-```python
-@callback(Output("canvas", "command"),
-          Input("btn", "n_clicks"),
-          prevent_initial_call=True)
-def export(_):
-    return {"id": str(uuid.uuid4()),
-            "type": "exportToSvg",
-            "payload": {"exportPadding": 20}}
-```
+`lastPaste` · `lastPointerDown` · `lastPointerMove` · `lastPointerUp` ·
+`lastScrollChange` · `lastLibraryChange` · `lastLinkOpen` · `lastFileAdded` ·
+`lastExternalDrop` · `lastExport`
 
-Supported types:
+Each is a dict carrying a `timestamp`. `lastPointerMove` and `lastScrollChange` are
+throttled — at 60 Hz they would otherwise be a callback storm.
 
-| `type` | `payload` | Result location |
-|---|---|---|
-| `updateScene` | `{elements?, appState?, files?, collaborators?, ...}` | — |
-| `resetScene` | `{resetLoadingState?: bool}` | — |
-| `addFiles` | `list[BinaryFileData]` | — |
-| `scrollToContent` | `{target?, opts?: {fitToViewport, viewportZoomFactor}}` | — |
-| `setActiveTool` | `{type, locked?, insertOnCanvasDirectly?}` | — |
-| `setToast` | `{message, duration?, closable?}` | — |
-| `toggleSidebar` | `{name, tab?, force?}` | — |
-| `updateLibrary` | `{libraryItems, merge?, openLibraryMenu?, defaultStatus?}` | — |
-| `replaceFiles` | `{[fileId]: {dataURL, mimeType?}}` | — (in-place overwrite; drops the old base64) |
-| `exportToSvg` | [Excalidraw export opts] | `lastExport.result` = SVG markup string |
-| `exportToBlob` | `{mimeType?, exportPadding?, ...}` | `lastExport.result` = data URL (base64) |
-| `exportToCanvas` | same as above | `lastExport.result` = data URL |
+### Commands
 
-Export round-trip:
+Twelve `command.type` values:
 
-```
-Python                                           Component
-──────                                           ─────────
-command = {id, type='exportToSvg', payload}  ->  dispatch
-                                            <-  lastExport = {id, type, result}
-                                            <-  command = None
-```
-
-Match `lastExport.id` against the command you dispatched to correlate responses.
-
----
-
-## Images & files at scale
-
-Excalidraw stores every pasted or dropped image as a base64 `dataURL`
-inside its `files` map. The serialized envelope bloats by 30–500× per
-image — fine for a toy app, fatal for a production one where you'd be
-jamming megabytes of base64 into Postgres or a `dcc.Store`.
-
-The component exposes three hooks that collectively solve this without
-forking Excalidraw:
-
-1. **`lastFileAdded`** — fires with `{fileId, mimeType, dataURL, size}`
-   the first time a new file appears. This is your "please upload me"
-   signal.
-2. **`replaceFiles` command** — dispatch `{[fileId]: {dataURL}}` with
-   the URL you got back from your storage layer; Excalidraw overwrites
-   its internal copy in-place and drops the old base64 bytes.
-3. **`externalizedSerializedData`** — mirror of `serializedData` with
-   every still-inline `data:` URI stripped to `null`. Persist this and
-   the JSON stays tiny.
-
-End-to-end flow:
-
-```
-User drops image                                    Excalidraw state
-     │                                                    │
-     ▼                                                    ▼
-[Excalidraw stores base64 → onChange → lastFileAdded]     files: {fid: {dataURL: data:…}}
-     │
-     ▼
-[Python callback]
-  bytes = decode_data_url(event['dataURL'])
-  url   = upload(bytes)          # ← your S3/disk/etc.
-  return command=replaceFiles({fid: {dataURL: url}})
-     │                                                    │
-     ▼                                                    ▼
-[Excalidraw addFiles overwrite → onChange re-fires]       files: {fid: {dataURL: url}}
-     │
-     ▼
-externalizedSerializedData now contains the URL.          ← persist this, not serializedData
-```
-
-The package ships three Python helpers to complete the flow without
-reinventing the base64 parsing yourself:
-
-```python
-from dash_excalidraw import (
-    decode_data_url,         # (data_url) -> (mime_type, bytes)
-    strip_inline_files,      # (serialized) -> (cleaner_serialized, {fileId: {dataURL, mimeType}})
-    restore_inline_files,    # (serialized, {fileId: dataURL}) -> serialized
-)
-```
-
-Run `python app.py` and open `/file-uploads` for a working reference
-implementation — it uploads to an in-memory dict served by a Flask
-route on the same Dash server. Swap `pages/_file_store.py` for your
-real storage and the rest of the code is unchanged.
-
-## Migrating from `0.0.x`
-
-The public API has intentionally drifted. The delta is small but real.
-
-| Old behavior | New behavior |
+| Category | Types |
 |---|---|
-| `isCollaborating` default `True` | default `False` — set explicitly if you want the collaborator UI |
-| `height` default `"400px"` | default `"600px"` |
-| `appState` output contained just `{gridSize, viewBackgroundColor}` | Full serializable appState — strictly additive for pattern-matching callbacks |
-| `onPointerUpdate`, `onPaste`, `onLibraryChange`, `onLinkOpen`, `onPointerDown`, `onScrollChange` | Removed (function props cannot cross the Dash bridge). Use `lastPointerMove`, `lastPaste`, `lastLibraryChange`, `lastLinkOpen`, `lastPointerDown`, `lastScrollChange` |
-| `excalidrawAPI` callback prop | Removed. Use the `command` + `lastExport` round-trip |
-| `validateEmbeddable: RegExp[]` | `validateEmbeddable: list[str]` (domain globs; JS compiles to RegExp) |
+| Scene | `updateScene` · `resetScene` · `scrollToContent` |
+| Files | `addFiles` · `replaceFiles` |
+| Tools & UI | `setActiveTool` · `setToast` · `toggleSidebar` · `updateLibrary` |
+| Export (async → `lastExport`) | `exportToSvg` · `exportToBlob` · `exportToCanvas` |
 
-Not exposed (requires React children, not representable as JSON):
+## Images at scale
 
-- `renderTopRightUI`, `renderCustomStats`, `renderEmbeddable`
-- `generateIdForFile` (the component uses a UUID fallback)
+Excalidraw stores every pasted or dropped image as a base64 `dataURL` inside the scene.
+Leaving them inline bloats `serializedData` by orders of magnitude — a handful of
+screenshots turns a 40 KB scene into a 12 MB one, and you pay that on every callback.
 
-Fork the wrapper if you need any of these — see `REBUILD.md` §4.3 for the full list.
+The wrapper supports the full upload-and-swap pattern:
 
----
+1. **`lastFileAdded`** fires once per new inline file — `{fileId, mimeType, dataURL, size}`.
+   Push the bytes to your storage layer from an ordinary callback.
+2. **`command: replaceFiles`** with `{fileId: {dataURL: "https://…"}}` overwrites
+   Excalidraw's copy in place. The old base64 string is unreferenced and garbage-collected.
+3. **`externalizedSerializedData`** is the envelope with every remaining `data:` URI
+   stripped. External URLs that step 2 installed survive. Persist this.
+
+`dash_excalidraw.helpers` ships `decode_data_url`, `strip_inline_files` and
+`restore_inline_files` — all pure Python, no dependencies.
+
+**The component never makes the network call.** It emits the bytes and waits to be told
+where they landed, which keeps the wrapper credential-free and backend-agnostic. Working
+reference: [`/file-uploads`](https://excalidraw.2plot.dev/file-uploads).
+
+## AI scene generation, and what it costs
+
+The docs site's [`/ai-agent`](https://excalidraw.2plot.dev/ai-agent) page turns a
+natural-language prompt into a scene by asking Claude or Gemini for Excalidraw JSON and
+dispatching it with `command: updateScene`. The technique is the interesting part and it
+generalizes: **the model returns data, not code**, so nothing it produces is executed —
+a malformed response draws nothing, it cannot do anything.
+
+Two costs worth stating plainly before you copy the pattern:
+
+- **Tokens.** A scene of any complexity is a few thousand output tokens. The system prompt
+  is stable across requests, so Claude calls use prompt caching — that is most of the
+  saving. Costs are per-provider and change; check current pricing before wiring it to a
+  public form.
+- **Exposure.** An unauthenticated LLM endpoint on a public host is somebody else's free
+  API credit. On the docs site that page ships behind an authentication tier so spend is
+  bounded by sign-ups. If you deploy this pattern, put something in front of it.
+
+The page runs the model call synchronously inside a Dash callback for clarity. For
+production, move it to `background=True` or a task queue.
+
+## Dash compatibility
+
+| | |
+|---|---|
+| **Dash** | 3.0.3+ and the whole 4.x line |
+| **Python** | 3.9+ |
+| **React** | 18.3.1 (provided by Dash — not bundled) |
+| **Excalidraw** | 0.18.1, pinned exactly and bundled |
+
+The wheel depends on Dash and nothing else. The documentation site's requirements are
+separate and never reach a `pip install dash-excalidraw`.
+
+## Excalidraw 0.18 notes
+
+Upgraded from 0.17.6. Two changes are worth knowing if you used the earlier release:
+
+**`commitToHistory` became `captureUpdate`, and the default's meaning changed.** 0.17 left
+undo history untouched when you passed nothing. 0.18 defaults to `EVENTUALLY`, which folds
+a programmatic scene push into the *next* captured action — so a user's first Ctrl+Z after
+your `updateScene` would also roll back their own previous edit. Nothing errors and nothing
+warns. **This wrapper defaults to `IMMEDIATELY`**, so a Python-dispatched push is one
+discrete, individually undoable step. Override per dispatch with
+`payload["captureUpdate"] = "IMMEDIATELY" | "NEVER" | "EVENTUALLY"`; peer-driven scenes in a
+collaborative app want `"NEVER"`. A legacy `commitToHistory` is translated and warned about
+once.
+
+**`collaborators` moved to top-level `SceneData`.** Either spelling is accepted from Python
+and normalised.
+
+0.18 also brings elbow arrows, flowchart shortcuts (Cmd+Arrow), scene search, image
+cropping, element linking and the command palette.
+
+## Common gotchas
+
+- **`initialData` is mount-only.** Excalidraw owns the scene after mount. Setting the prop
+  from a callback does nothing — use `command: updateScene` or `resetScene`.
+- **Commands need unique ids.** Dispatching the same `{id, type}` twice is a no-op by
+  design. Use `uuid.uuid4()`.
+- **`lastExport` carries the id you dispatched.** Don't assume the newest `lastExport`
+  answers your newest command; async exports arrive out of order.
+- **`validateEmbeddable` takes glob strings**, not regex — `"*.youtube.com"`.
 
 ## Development
 
 ```bash
 # Python side
 python -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev,demo]'
+pip install -e '.[dev]'
 
-# JS side
+# JS side (only needed when changing src/ts)
+nvm use                 # .nvmrc pins node 20.11.1
 npm install
-npm run watch          # rebuild on change
-npm run build:backends # regenerate DashExcalidraw.py after TS signature changes
+npm run build           # webpack bundle + regenerated Python wrappers
+npm run watch           # webpack --watch during iteration
+
+# Test
+pytest tests -q
 ```
 
-Run the showcase with `python app.py`. Tests live in `tests/`.
+The built bundle `dash_excalidraw/dash_excalidraw.js` is **committed on purpose**: the
+release workflow gates on its commit timestamp, and tracking it keeps `pip install git+…`
+working without a Node toolchain. Rebuild and commit it only in release-prep commits.
+
+See [`REBUILD.md`](./REBUILD.md) for the architecture and the reasoning behind the prop
+surface.
+
+## Community & support
+
+- **Discord** — [join](https://discord.gg/WEnZR35mrK)
+- **YouTube** — [@2plotai](https://www.youtube.com/channel/UC6Bmo0t0ZUpU_xKBYW0bJuQ)
+- **Issues** — [GitHub](https://github.com/pip-install-python/dash-excalidraw/issues)
+
+## More from Pip Install Python LLC
+
+Part of the [2plot network](https://2plot.dev) — component documentation sites, each one a
+running Dash app: [leaflet](https://leaflet.2plot.dev) ·
+[email](https://email.2plot.dev) · [flexlayout](https://flexlayout.2plot.dev) ·
+[llms](https://llms.2plot.dev) · [boilerplate](https://boilerplate.2plot.dev)
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE).
+MIT — see [LICENSE](LICENSE).
+
+Excalidraw itself is MIT-licensed by the Excalidraw team. Third-party notices for
+everything bundled into the JavaScript artifact ship alongside it in
+`dash_excalidraw/dash_excalidraw.js.LICENSE.txt`.

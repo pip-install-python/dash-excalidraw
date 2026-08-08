@@ -1,13 +1,28 @@
 {
-  "name": "Dash Documentation Boilerplate — the 2plot network's template",
-  "short_name": "Dash Docs Boilerplate",
-  "description": "The markdown-driven documentation template every *.2plot.dev component site is forked from.",
+  "name": "dash-excalidraw \u2014 Excalidraw drawing canvas for Dash",
+  "short_name": "dash-excalidraw",
+  "description": "The Excalidraw drawing canvas as a Dash component: JSON-safe props, imperative commands, event snapshots.",
   "icons": [
-    { "src": "/assets/favicon/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/assets/favicon/android-chrome-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/assets/favicon/android-chrome-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/assets/favicon/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/favicon/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/favicon/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
-  "theme_color": "#12B886",
+  "theme_color": "#6741d9",
   "background_color": "#1a1b1e",
   "display": "standalone",
   "start_url": "/"

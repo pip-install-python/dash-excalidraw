@@ -1,13 +1,19 @@
 /**
- * Claude-style Typewriter Animation for "Dash Docs"
- * Creates a streaming text effect similar to Claude's response animation
+ * Typewriter animation for the header brand chip.
+ *
+ * The text is READ FROM THE ELEMENT rather than hard-coded here. The
+ * template shipped it as a literal "Dash Docs", so a fork that renamed its
+ * header still animated the template's name over the top of its own — the
+ * brand was correct in the DOM for exactly one frame. components/header.py
+ * renders SITE_SHORT_NAME into #dash-docs-title; this just retypes it.
  */
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Text animation handler loaded');
 
     // Configuration
-    const TEXT_TO_TYPE = "Dash Docs";
+    const titleEl = document.getElementById('dash-docs-title');
+    const TEXT_TO_TYPE = (titleEl && titleEl.textContent.trim()) || '';
     const TYPING_SPEED = 80; // milliseconds per character
     const INITIAL_DELAY = 500; // delay before starting animation
 
