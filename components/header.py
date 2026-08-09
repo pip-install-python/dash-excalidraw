@@ -139,7 +139,7 @@ def create_header(data):
                         create_search(data),
                         create_link(
                             "radix-icons:github-logo",
-                            "https://github.com/pip-install-python/Dash-Documentation-Boilerplate",
+                            "https://github.com/pip-install-python/dash-excalidraw",
                         ),
                         dmc.ActionIcon(
                             [

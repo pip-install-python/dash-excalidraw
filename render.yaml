@@ -1,11 +1,11 @@
-# Render Blueprint for boilerplate.2plot.dev
+# Render Blueprint for excalidraw.2plot.dev
 #
 # Applies to a new service with `render blueprint launch`, and documents the
 # deployment for anyone forking this template. Values marked sync:false are
 # per-deployment and must be set in the Render dashboard.
 services:
   - type: web
-    name: boilerplate-2plot-dev
+    name: excalidraw-2plot-dev
     runtime: python
     plan: starter
     region: oregon
@@ -17,14 +17,14 @@ services:
     startCommand: gunicorn run:server -b 0.0.0.0:$PORT --workers 2 --timeout 60
     healthCheckPath: /healthz
     domains:
-      - boilerplate.2plot.dev
+      - excalidraw.2plot.dev
     envVars:
       # THE value to get right. It drives <link rel="canonical">, sitemap.xml
       # and the absolute URLs in llms.txt. A fork that leaves this unset
       # inherits the boilerplate's own domain and tells Google it is a
       # duplicate — so lib/constants.py refuses to boot on Render without it.
       - key: APP_BASE_URL
-        value: https://boilerplate.2plot.dev
+        value: https://excalidraw.2plot.dev
 
       - key: PYTHON_VERSION
         value: "3.12.0"
@@ -47,7 +47,7 @@ services:
       # Also the bulletin's identity to the hub (lib/bulletin.py), so a fork
       # that changes this stops receiving the boilerplate's announcements.
       - key: SATELLITE_APP_KEY
-        value: boilerplate
+        value: excalidraw
 
       # This app's identity to the 2plot.dev ad network (lib/ad_client.py).
       # Set explicitly rather than left to the code default so the value is
@@ -55,7 +55,7 @@ services:
       # SATELLITE_APP_KEY above, so /admin/ad-board, /traffic and the bulletin
       # all name this app identically.
       - key: AD_APP_ID
-        value: boilerplate
+        value: excalidraw
 
       # Hub-published tips and announcements in the llms.txt viewer header.
       # Unset, the header still renders on the package's defaults with an

@@ -51,19 +51,35 @@ def create_nav_section(title, links):
 def create_content(data):
     """Create navbar content with organized sections"""
 
-    # Define the desired order for documentation pages
+    # Reading order for the documentation pages, easiest first.
+    #
+    # This is an explicit list, NOT the `category:` field in each page's
+    # frontmatter — that field is carried through to register_page and is
+    # available to other surfaces, but this navbar does not group by it, so
+    # setting a category alone changes nothing here. Anything absent from this
+    # list still appears, appended in registration order, which is why a new
+    # page is never invisible — only out of sequence.
+    #
+    # Names must match each page's `name:` frontmatter exactly.
     page_order = [
-        "Getting Started",
-        "Pluggable Backends",
-        "Backend Deep Dive",
-        "FastAPI Showcase",
-        "Custom Directives",
-        "AI/LLM Integration",
-        "Multi-Site Networks",
-        "Network Standard",
-        "Authentication",
-        "Interactive .md",
-        "Data Visualization",
+        # Start here
+        "Basic usage",
+        "initialData",
+        # Reading the canvas
+        "Events",
+        "Persistence",
+        # Driving the canvas
+        "Command dispatch",
+        "Export round-trip",
+        "Library",
+        # Appearance
+        "Theming",
+        "View modes",
+        "UIOptions",
+        # At scale
+        "File uploads",
+        "Collaboration",
+        "AI agent",
     ]
 
     # Create a mapping of page names to their links

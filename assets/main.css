@@ -47,7 +47,10 @@ li {
 
 /* Blockquote styling */
 blockquote {
-    border-left: 4px solid var(--mantine-color-teal-5);
+    /* Follows PRIMARY_COLOR in lib/constants.py. The template hard-coded
+       teal-5, so a fork that changed its primary colour still drew every
+       blockquote rule in the template's accent. */
+    border-left: 4px solid var(--mantine-color-violet-5);
     padding-left: 1rem;
     margin-left: 0;
     margin-right: 0;
@@ -362,7 +365,8 @@ img[alt=logo] { width: 100%; }
     content: '▋';
     animation: blink-cursor 1s step-end infinite;
     margin-left: 2px;
-    color: #03c7e5;
+    /* Matches the brand text the caret trails — see components/header.py. */
+    color: var(--mantine-color-violet-5);
 }
 
 /* AG Grid Dark Mode Support */

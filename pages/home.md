@@ -1,263 +1,107 @@
-# Dash Documentation Boilerplate — the 2plot network's template
+# dash-excalidraw — Excalidraw drawing canvas for Dash
 
-![logo](assets/intro_img.jpg)
+> **`dash-excalidraw` — the [Excalidraw](https://excalidraw.com/) whiteboard as a first-class [Dash](https://dash.plotly.com/) component.** By [Pip Install Python](https://2plot.dev).
 
-> **`dash-documentation-boilerplate` — the markdown-driven documentation template every `*.2plot.dev` component site is forked from.** By [Pip Install Python](https://2plot.dev).
-
-Create beautiful, interactive documentation for your Dash components, data science workflows, and applications with markdown-driven content, live code examples, and automatic theme persistence.
-
----
-
-## What is This?
-
-The Dash Documentation Boilerplate is a **production-ready framework** for creating professional documentation sites for your Dash projects. Whether you're documenting a component library, showcasing data visualizations, or building a comprehensive application guide, this boilerplate provides everything you need.
-
-It is also the reference implementation of the **2plot network standard**: the site-identity rules, the internal-traffic analytics contract, and the CI baseline that every satellite copies verbatim. Those files are listed on the [Network Standard](/network-standard) page.
-
-### Built With Modern Technologies
-
-- **Dash 4.1+** - Pluggable backends (Flask / FastAPI / Quart), MCP-aware
-- **Dash Mantine Components 2.7+** - Beautiful, accessible UI components
-- **Mantine 8.3+** - Modern React component library
-- **React 18** - Latest React features
-- **Python 3.11+** - Modern Python with type hints
-
----
-
-## Key Features
-
-### 📝 Markdown-Driven Documentation
-Write your documentation in **markdown files** with full Python integration. The framework automatically discovers markdown files in the `docs/` directory and generates pages with:
-
-- **Frontmatter metadata** for page configuration
-- **Custom directives** for interactive examples
-- **Automatic routing** based on your file structure
-- **Table of contents** generation
-
-### 🎨 Beautiful UI/UX
-Built with Dash Mantine Components for a modern, professional look:
-
-- **Responsive design** - Works beautifully on mobile, tablet, and desktop
-- **Dark & Light themes** - Automatic theme persistence via localStorage
-- **Smooth transitions** - Professional animations and interactions
-- **Customizable** - Easy to theme with your brand colors
-- **Accessible** - WCAG compliant components
-
-### 🔧 Custom Directives
-Powerful directives to enhance your documentation:
-
-- `.. toc::` - Generate table of contents from headings
-- `.. exec::module.path` - Embed interactive Python components
-- `.. source::path/to/file.py` - Display source code with syntax highlighting
-- `.. kwargs::ComponentName` - Auto-generate component props documentation
-
-### 🤖 AI/LLM Integration
-Powered by [dash-improve-my-llms](https://pypi.org/project/dash-improve-my-llms/) **2.3.4**:
-
-- **`LLMS_DOC` pattern** — write a module-level prose string per page; the package serves it verbatim at `/<page>/llms.txt`
-- **Multi-backend** — same surface under Flask, FastAPI, and Quart (auto-detected)
-- **MCP bridge** — each page's prose registers as a `dash.mcp` resource on Dash 4.3+
-- **SEO** — `/sitemap.xml` with priority inference, `/robots.txt` with bot-class policies
-- **Bot management** — training crawlers blocked, search citations allowed, browsers untouched
-- **Share with AI** — paste your URL into ChatGPT/Claude; they read the prose docs directly
-
-### 🐋 Production Ready
-
-- **Docker support** - Dockerfile and docker-compose included
-- **Gunicorn server** - Production-ready WSGI server
-- **Environment config** - Easy deployment configuration
-- **Optimized builds** - Fast loading and rendering
-
----
-
-## Quick Start
-
-### 1. Installation
+Every canvas on this site is a running Dash app. Draw on them.
 
 ```bash
-# Clone the repository
-git clone https://github.com/pip-install-python/Dash-Documentation-Boilerplate.git
-cd Dash-Documentation-Boilerplate
-
-# Install Python dependencies
-pip install -r requirements.txt
-# markdown2dash pins gunicorn<22 against this project's CVE-driven
-# gunicorn>=23 floor, so it installs without its dependency graph.
-pip install --no-deps markdown2dash==0.1.2
-
-# Install Node dependencies (for Mantine components)
-npm install
-```
-
-### 2. Run the Development Server
-
-```bash
-./scripts/dev.sh          # or: python run.py
-```
-
-Visit `http://localhost:8559` in your browser.
-
-### 3. Create Your First Documentation Page
-
-Create a new folder in `docs/` with a markdown file:
-
-```markdown
----
-name: My Component
-description: Description of my awesome component
-endpoint: /components/my-component
-icon: mdi:code-tags
----
-
-## My Component
-
-Your documentation content here...
-
-.. toc::
-
-## Features
-
-- Feature 1
-- Feature 2
-```
-
-That's it! Your page will automatically appear in the navigation.
-
----
-
-## Example Documentation
-
-This site includes several example pages to demonstrate the capabilities:
-
-- **Getting Started** - Learn how to create documentation pages
-- **Custom Directives** - See all available directives in action
-- **Interactive Components** - Examples of callbacks and state management
-- **Data Visualization** - Plotly integration examples
-- **AI Integration** - Showcase AI/LLM features
-
----
-
-## Project Structure
-
-```
-dash-documentation-boilerplate/
-├── assets/                      # Static assets and CSS
-│   ├── m2d.css                 # Markdown-to-Dash styling
-│   └── main.css                # Custom styles
-│
-├── components/                  # Reusable UI components
-│   ├── appshell.py             # Main app layout
-│   ├── header.py               # Header with search and theme toggle
-│   └── navbar.py               # Navigation sidebar
-│
-├── docs/                        # Your documentation content
-│   └── your-component/
-│       ├── component.md        # Markdown documentation
-│       └── examples.py         # Python interactive examples
-│
-├── lib/                         # Utility libraries
-│   ├── constants.py            # App-wide constants
-│   └── directives/             # Custom markdown directives
-│       ├── kwargs.py           # Component props tables
-│       ├── source.py           # Source code display
-│       └── toc.py              # Table of contents
-│
-├── pages/                       # Dash multi-page app
-│   ├── home.md                 # This home page
-│   ├── home.py                 # Home page layout
-│   └── markdown.py             # Dynamic markdown loader
-│
-├── scripts/                     # Post-deploy checks against a live site
-├── tests/                       # pytest suite (all three backends)
-├── .github/workflows/           # CI and CD
-│
-├── templates/
-│   └── index.html              # Custom HTML template
-│
-├── CHANGELOG.md                # Version history
-├── README.md                   # Full documentation
-├── render.yaml                 # Render deployment blueprint
-├── requirements.txt            # Python dependencies
-├── package.json                # Node dependencies
-├── Dockerfile                  # Docker container
-└── run.py                      # Application entry point
+pip install dash-excalidraw
 ```
 
 ---
 
-## Customization
+## The problem this solves
 
-### Change Primary Color
+Excalidraw is a React application with a large imperative API. Wrapping it for Dash
+means answering one question honestly: **what can cross the Python/JavaScript bridge?**
 
-Edit `lib/constants.py`:
+Only JSON can. Functions, RegExps and class instances cannot. Most wrappers stop
+there and hand you a `clientside_callback` for anything interesting — which means
+writing JavaScript to use a Python component.
+
+This one translates the entire surface into three JSON-safe patterns, so you write
+ordinary `@callback`s and never touch JavaScript.
+
+| Upstream shape | What Python sees | Why |
+|---|---|---|
+| Callbacks (`onPaste`, `onPointerUpdate`, …) | **Snapshot props** — `lastPaste`, `lastPointerMove`, … each with a `timestamp` | A callback can't be serialized; a record of it firing can. The timestamp is how you dedupe. |
+| Imperative methods (`updateScene`, `exportToSvg`, …) | **`command`** — `{id, type, payload}`, dispatched once per unique `id` | One prop covers twelve methods, and a re-render can't re-fire a command. |
+| Async results | **`lastExport`**, carrying the `id` you dispatched | Exports resolve out of order under load. The id is how you correlate. |
+| `validateEmbeddable` RegExp | A **list of glob strings**, compiled to RegExps on the JS side | A RegExp has no JSON form. `"*.youtube.com"` does. |
+
+---
+
+## Thirty seconds to a canvas
 
 ```python
-PRIMARY_COLOR = "teal"  # Change to any Mantine color
+from dash import Dash, Input, Output, callback, html
+from dash_excalidraw import DashExcalidraw
+
+app = Dash(__name__)
+
+app.layout = html.Div([
+    DashExcalidraw(id="canvas", height="600px"),
+    html.Pre(id="count"),
+])
+
+
+@callback(Output("count", "children"), Input("canvas", "elements"))
+def show(elements):
+    return f"{len(elements or [])} elements on the canvas"
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
 ```
 
-### Modify Styles
-
-- `assets/main.css` - General application styling
-- `assets/m2d.css` - Markdown-specific styling
-
-### Configure AI/LLM Integration
-
-Update `run.py` to configure bot management and SEO:
-
-```python
-from dash_improve_my_llms import RobotsConfig
-
-app._base_url = "https://your-production-url.com"
-app._robots_config = RobotsConfig(
-    block_ai_training=True,
-    allow_ai_search=True,
-    crawl_delay=10
-)
-```
+Nothing else is required. The Excalidraw bundle, its stylesheet and its UI font ship
+inside the wheel as one self-contained JavaScript file — no CDN dependency at load
+time, no `external_stylesheets` entry, no build step.
 
 ---
 
-## Deployment
+## Where to go next
 
-### Docker
+**Start here** — [Basic usage](/basic) is the smallest useful app.
+[initialData](/initial-data) seeds a scene at mount.
 
-```bash
-# Build the image
-docker build -t dash-docs-boilerplate .
+**Reading the canvas** — [Events](/events) shows every callback as a snapshot prop.
+[Persistence](/persistence) streams `serializedData` to a store and restores it.
 
-# Run the container
-docker run -p 8550:8550 dash-docs-boilerplate
-```
+**Driving the canvas** — [Command dispatch](/commands) is the imperative API from
+Python. [Export](/export) is the async round-trip. [Library](/library) reads and
+writes the shape library.
 
-### Docker Compose
+**Appearance** — [Theming](/theming), [View modes](/view-modes), [UIOptions](/ui-options).
 
-```bash
-docker-compose up
-```
+**At scale** — [File uploads](/file-uploads) keeps canvas JSON small by pushing
+pasted images to storage and swapping the base64 for URLs.
+[Collaboration](/collaboration) drives the collaborator UI and live cursors.
 
-Visit `http://localhost:8550`
-
----
-
-## Resources
-
-- **GitHub Repository**: [Dash-Documentation-Boilerplate](https://github.com/pip-install-python/Dash-Documentation-Boilerplate)
-- **Full Documentation**: See [README.md](https://github.com/pip-install-python/Dash-Documentation-Boilerplate/blob/main/README.md)
-- **Changelog**: [CHANGELOG.md](https://github.com/pip-install-python/Dash-Documentation-Boilerplate/blob/main/CHANGELOG.md)
-- **AI Integration Guide**: [AI/LLM Integration](/examples/ai-integration)
-- **Multi-Site Networks**: [Wiring a family of documentation sites together](/networks)
-
-### Community
-
-- **GitHub**: [@pip-install-python](https://github.com/pip-install-python) ![GitHub](https://img.shields.io/github/followers/pip-install-python?style=social)
-- **YouTube**: [2plot.ai](https://www.youtube.com/@2plotai?sub_confirmation=1) — build-alongs and component walkthroughs
+**AI** — [AI agent](/ai-agent) turns a natural-language prompt into a scene, and is
+honest about what that costs.
 
 ---
 
-## License
+## Excalidraw 0.18
 
-MIT License - see [LICENSE](https://github.com/pip-install-python/Dash-Documentation-Boilerplate/blob/main/LICENSE) for details.
+Pinned exactly at 0.18.1, which brings elbow arrows, flowchart shortcuts, scene
+search, image cropping, element linking and the command palette — and patches the
+mermaid XSS advisory.
+
+One upgrade note worth reading before you dispatch a scene from Python: 0.18 replaced
+`commitToHistory` with `captureUpdate`, and **changed what the default means**. 0.17
+left undo history untouched; 0.18 folds a programmatic push into the *next* captured
+action, so a user's first Ctrl+Z after your `updateScene` would also roll back their
+own previous edit. Nothing errors and nothing warns.
+
+This wrapper defaults to `IMMEDIATELY`, so a Python-dispatched push is one discrete,
+individually undoable step. [Command dispatch](/commands) covers the override.
 
 ---
 
-**Ready to start?** Check out the example documentation pages to see what you can build!
+## For agents
+
+Append `/llms.txt` to any URL on this site for the machine-readable Markdown of that
+page. The index is at [/llms.txt](/llms.txt), and every page document opens with a
+navigation block back to the site and network indexes rather than being a dead end.

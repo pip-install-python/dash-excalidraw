@@ -6,6 +6,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# LESSONS §9, learned on email.2plot.dev: without this, Python block-buffers
+# stdout when it is a pipe and gunicorn never flushes it, so every boot
+# diagnostic this app prints — the backend it resolved, whether the bulletin is
+# wired, whether forwarded-scheme trust is on — never reaches the platform log.
+# The line that would have explained an outage was the line that got swallowed.
+ENV PYTHONUNBUFFERED=1
+
 # Update pip
 RUN pip install --upgrade pip
 
