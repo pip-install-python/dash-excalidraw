@@ -398,3 +398,65 @@ def test_a_check_that_raises_degrades_to_gated(access_on, monkeypatch):
 
     monkeypatch.setattr(pkg_access._config, "check", boom)
     assert pkg_access.resolve(GATED_PAGE) == "gated"
+
+
+# ---------------------------------------------------------------- spend ----
+
+def test_the_spend_gate_is_independent_of_the_page_tier(monkeypatch):
+    """The page tier is a READ gate; this is the SPEND gate. Both are needed.
+
+    Discovered by actually loading /ai-agent anonymously and watching it render
+    in full, then generate a scene: `tier: auth` looked like it bounded spend
+    and did not. Two independent reasons, both upstream-by-design:
+
+      1. `lib.page_tiers.degraded_tier` fails OPEN for every tier except
+         `hidden` when Clerk is unconfigured — correct for docs, wrong for a
+         metered endpoint.
+      2. Tiers are path-based; every Dash callback posts to the one shared
+         `/_dash-update-component` route, so no path gate ever sees the
+         request that spends money.
+
+    This pins the inverse-degradation rule that fixes it: absent Clerk, allow
+    locally and refuse on a hosting platform.
+    """
+    import importlib.util
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+    spec = importlib.util.spec_from_file_location(
+        "_ai_agent_under_test", "docs/ai-agent/ai_agent.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    from lib import auth
+
+    monkeypatch.setattr(auth, "clerk_enabled", lambda: False)
+
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("APP_ENV", raising=False)
+    assert mod._spend_allowed() is True, "local dev must stay usable"
+
+    monkeypatch.setenv("RENDER", "true")
+    assert mod._spend_allowed() is False, (
+        "a deploy with no CLERK_* vars must not hand the internet a metered "
+        "endpoint — this is the one place that must fail CLOSED"
+    )
+
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.setenv("APP_ENV", "production")
+    assert mod._spend_allowed() is False
+
+
+def test_the_ai_page_still_declares_the_auth_tier():
+    """The read gate is not redundant just because the spend gate exists."""
+    import pathlib
+
+    import frontmatter
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    meta, _ = frontmatter.parse(
+        (root / "docs" / "ai-agent" / "ai-agent.md").read_text()
+    )
+    assert meta.get("tier") == "auth"

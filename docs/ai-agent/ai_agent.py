@@ -167,19 +167,28 @@ STYLE DISCIPLINE
 
 Return ONLY the JSON object — no preamble, no markdown fence, no epilogue."""
 
-# Claude model options (exact IDs per claude-api skill)
+# Claude model options (exact IDs — no date suffixes; these strings are
+# complete as written).
 CLAUDE_MODELS = [
+    {"value": "claude-opus-5", "label": "Claude Opus 5"},
     {"value": "claude-opus-4-7", "label": "Claude Opus 4.7"},
     {"value": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6"},
     {"value": "claude-haiku-4-5", "label": "Claude Haiku 4.5"},
 ]
 
-# Per-model output ceiling. These are well below each model's absolute max
-# (Opus 4.7 supports 128K output, others 64K), but large enough that a
-# detailed Excalidraw scene never truncates mid-element. Change these if
-# you want to let the model run to its absolute ceiling — all calls go
-# through streaming so the SDK timeout doesn't bite at any of these values.
+# Per-model output ceiling. Well below each model's absolute max (Opus 5 and
+# Opus 4.7 support 128K output), but large enough that a detailed Excalidraw
+# scene never truncates mid-element. All calls stream, so the SDK's
+# non-streaming HTTP deadline doesn't bite at any of these values.
+#
+# ONE THING TO KNOW ABOUT OPUS 5: thinking is ON BY DEFAULT there — omitting
+# the `thinking` parameter runs adaptive thinking, where on Opus 4.7 the same
+# omission meant no thinking at all. `max_tokens` caps thinking AND response
+# text together, so a budget sized tightly around the answer on 4.7 can
+# truncate on 5. 64K is generous for a scene JSON either way; if you lower
+# these numbers, lower them for 4.7 first.
 CLAUDE_MAX_TOKENS = {
+    "claude-opus-5": 64000,
     "claude-opus-4-7": 64000,
     "claude-sonnet-4-6": 64000,
     "claude-haiku-4-5": 64000,
@@ -265,6 +274,34 @@ def _cleanup_json(text: str) -> str:
     return re.sub(r",(\s*[}\]])", r"\1", text)
 
 
+def _spend_allowed() -> bool:
+    """May the current request spend API credits?
+
+    Deliberately fails CLOSED in production and OPEN in local development,
+    which is the inverse of how the page-tier machinery degrades:
+
+    * Clerk configured  -> only a signed-in viewer may generate.
+    * Clerk absent, running on a hosting platform (RENDER / APP_ENV) -> nobody
+      may generate. A deployment that forgot its CLERK_* vars must not hand
+      the whole internet a metered endpoint.
+    * Clerk absent, local dev -> allowed, so the demo is usable offline.
+
+    Read at CALL time, never at import — the same rule lib/auth.py documents,
+    and the reason a module-level constant would be wrong here.
+    """
+    import os
+
+    from lib import auth
+
+    if auth.clerk_enabled():
+        return auth.current_user() is not None
+
+    in_production = bool(
+        os.environ.get("RENDER") or os.environ.get("APP_ENV") == "production"
+    )
+    return not in_production
+
+
 def _call_claude(model: str, user_prompt: str) -> str:
     """Streaming Claude call with prompt caching on the system block.
 
@@ -291,12 +328,34 @@ def _call_claude(model: str, user_prompt: str) -> str:
         messages=[{"role": "user", "content": user_prompt}],
     ) as stream:
         final = stream.get_final_message()
+
+    stop_reason = getattr(final, "stop_reason", None)
+
+    # CHECK stop_reason BEFORE READING content. Opus 5 ships elevated safety
+    # classifiers that can decline a request: the call returns a normal HTTP
+    # 200 with `stop_reason: "refusal"` and an empty (or partial) content
+    # list, not an exception. Reading content first would hand
+    # _parse_and_normalize an empty string and surface as an inscrutable JSON
+    # error several frames away from the actual cause.
+    #
+    # A drawing prompt is an unlikely trigger, but "unlikely" is exactly the
+    # failure that gets diagnosed as a parser bug.
+    if stop_reason == "refusal":
+        details = getattr(final, "stop_details", None)
+        category = getattr(details, "category", None) if details else None
+        raise ValueError(
+            "Claude's safety classifiers declined this request"
+            + (f" (category: {category})" if category else "")
+            + ". Nothing was generated. Rephrase the prompt, or pick a "
+            "different model from the selector."
+        )
+
     text = next(
         (b.text for b in final.content if getattr(b, "type", None) == "text"), ""
     )
     # Surface truncation explicitly — better to tell the user than to let
     # _parse_and_normalize fail deep inside malformed JSON.
-    if getattr(final, "stop_reason", None) == "max_tokens":
+    if stop_reason == "max_tokens":
         raise ValueError(
             f"Claude hit max_tokens={max_tokens} and was cut off mid-response. "
             f"Raise `CLAUDE_MAX_TOKENS[{model!r}]` or ask for a smaller scene."
@@ -772,6 +831,36 @@ def _generate(_gen_clicks, _clear_clicks, provider, model, prompt):
 
     if not prompt or not prompt.strip():
         return no_update, "Write a prompt first.", "yellow", no_update, no_update, no_update
+
+    # ---- THE SPEND GATE -------------------------------------------------
+    # This check has to live HERE, not on the page's `tier: auth`, and the
+    # reason is worth stating because the frontmatter looks like it covers it.
+    #
+    # Two gaps, both by design upstream:
+    #
+    #  1. `lib/page_tiers.degraded_tier` makes every tier except `hidden`
+    #     fail OPEN when Clerk is not configured. That is the right trade for
+    #     reading documentation — a misconfigured deploy should not hide the
+    #     docs — and exactly the wrong one for a page that spends money, which
+    #     must fail CLOSED.
+    #  2. Page tiers are path-based, and every Dash callback in the app posts
+    #     to the single shared `/_dash-update-component` route. No path-based
+    #     gate can tell this callback from any other, so even a correctly
+    #     configured tier never sees the request that does the spending.
+    #
+    # So the page tier governs who can READ the page; this governs who can
+    # make it BILL. Anonymous callers get told what to do rather than a bare
+    # denial, because on a public docs site most of them are just curious.
+    if not _spend_allowed():
+        return (
+            no_update,
+            "Sign in to generate — this page spends real API credits, so "
+            "generation is limited to signed-in visitors.",
+            "yellow",
+            no_update,
+            no_update,
+            no_update,
+        )
 
     if provider == "claude" and not HAS_CLAUDE_KEY:
         return (

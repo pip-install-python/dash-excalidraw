@@ -130,10 +130,12 @@ gunicorn>=23.0.0
 # never sees lib/auth.py, and never installs this. ci.yml's `package` job
 # asserts that against the built wheel.
 #
-# What it gates HERE: /ai-agent declares `tier: auth` in its frontmatter, so
-# anonymous readers get the gate document instead of a page that spends real
-# Anthropic and Gemini credits. Sign-ups bound the spend; the control board
-# throttles it. Every other page stays public.
+# What it gates HERE: /ai-agent declares `tier: auth`, so anonymous readers get
+# the gate document instead of the page. That is a READ gate, not a spend gate —
+# tiers are path-based, every Dash callback posts to one shared route, and
+# lib/page_tiers.degraded_tier fails OPEN when Clerk is absent. The spend check
+# lives in the callback (docs/ai-agent/ai_agent.py::_spend_allowed) and fails
+# CLOSED in production. Both matter; neither substitutes for the other.
 #
 # ONE OPERATIONAL RISK, worth knowing before you debug a dead site: the
 # package registers a `[dash_hooks]` entry point that Dash auto-imports during

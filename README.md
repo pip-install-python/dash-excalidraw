@@ -230,8 +230,13 @@ Two costs worth stating plainly before you copy the pattern:
   saving. Costs are per-provider and change; check current pricing before wiring it to a
   public form.
 - **Exposure.** An unauthenticated LLM endpoint on a public host is somebody else's free
-  API credit. On the docs site that page ships behind an authentication tier so spend is
-  bounded by sign-ups. If you deploy this pattern, put something in front of it.
+  API credit. Note *where* the guard has to go: on the docs site the page declares an
+  `auth` tier, but that tier governs who can **read** the page. It does not govern who
+  can make it **bill** — page tiers are path-based and every Dash callback posts to one
+  shared route, and the tier machinery deliberately fails *open* when auth isn't
+  configured so a misconfigured deploy still serves its docs. The spend check therefore
+  lives inside the callback itself, fails *closed* in production, and is the thing worth
+  copying. A page-level gate alone would have looked right and protected nothing.
 
 The page runs the model call synchronously inside a Dash callback for clarity. For
 production, move it to `background=True` or a task queue.
