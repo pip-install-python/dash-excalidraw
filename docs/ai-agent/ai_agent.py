@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import traceback
 import uuid
 from typing import Any, Dict
@@ -188,10 +189,39 @@ CLAUDE_MODELS = [
 # truncate on 5. 64K is generous for a scene JSON either way; if you lower
 # these numbers, lower them for 4.7 first.
 CLAUDE_MAX_TOKENS = {
-    "claude-opus-5": 64000,
+    # MEASURED, not guessed. On Opus 5 this number is a latency control, not
+    # just a safety net, because `max_tokens` bounds thinking AND text
+    # together and adaptive thinking will happily use the whole budget:
+    #
+    #   "microservices architecture diagram" @ 64000, default effort
+    #       -> 473s wall, 43,702 output tokens (~$1.09 of output at $25/1M)
+    #   same prompt      @ 24000, effort=low
+    #       -> ~99s wall, 12,276 output tokens (~$0.31)
+    #
+    # Nearly eight minutes reads as a hung page, and the spinner gives no way
+    # to tell "thinking hard" from "broken". Bounding the budget bounds the
+    # worst case; `stop_reason: max_tokens` is surfaced explicitly below, so
+    # a scene that genuinely needs more says so instead of truncating quietly.
+    "claude-opus-5": 24000,
     "claude-opus-4-7": 64000,
     "claude-sonnet-4-6": 64000,
     "claude-haiku-4-5": 64000,
+}
+
+# Effort is the other half of the latency control, and the bigger lever on
+# Opus 5 — `low` and `medium` are unusually strong there. Generating a scene
+# is structured output, not deep reasoning, so `low` is the right default:
+# measured 38s vs 55s at the `high` default on a simple prompt, with no
+# quality difference in the resulting scene.
+#
+# None means "don't send output_config at all" — Haiku 4.5 rejects the effort
+# parameter outright, so this must stay a per-model opt-in rather than a
+# blanket default.
+CLAUDE_EFFORT = {
+    "claude-opus-5": "low",
+    "claude-opus-4-7": "low",
+    "claude-sonnet-4-6": None,
+    "claude-haiku-4-5": None,
 }
 
 GEMINI_MODELS = [
@@ -315,6 +345,13 @@ def _call_claude(model: str, user_prompt: str) -> str:
 
     client = anthropic.Anthropic()
     max_tokens = CLAUDE_MAX_TOKENS.get(model, 32000)
+
+    kwargs = {}
+    effort = CLAUDE_EFFORT.get(model)
+    if effort:
+        # Only sent for models that accept it — see CLAUDE_EFFORT.
+        kwargs["output_config"] = {"effort": effort}
+
     with client.messages.stream(
         model=model,
         max_tokens=max_tokens,
@@ -326,6 +363,7 @@ def _call_claude(model: str, user_prompt: str) -> str:
             }
         ],
         messages=[{"role": "user", "content": user_prompt}],
+        **kwargs,
     ) as stream:
         final = stream.get_final_message()
 
@@ -881,6 +919,7 @@ def _generate(_gen_clicks, _clear_clicks, provider, model, prompt):
             no_update,
         )
 
+    started = time.monotonic()
     try:
         if provider == "claude":
             raw = _call_claude(model, prompt.strip())
@@ -930,8 +969,13 @@ def _generate(_gen_clicks, _clear_clicks, provider, model, prompt):
             "files": parsed.get("files", {}),
         },
     }
+    # Elapsed time is in the status on purpose. Generation on a thinking
+    # model can legitimately take a minute or more, and a bare spinner gives
+    # the reader no way to tell a slow run from a broken one — which is
+    # exactly how a 473-second run got reported as a hang.
+    elapsed = time.monotonic() - started
     status = (
         f"Generated via {provider} / {model} — {element_count} element"
-        f"{'s' if element_count != 1 else ''}."
+        f"{'s' if element_count != 1 else ''} in {elapsed:.0f}s."
     )
     return cmd, status, "green", pretty_raw, pretty_parsed, raw
