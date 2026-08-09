@@ -218,6 +218,36 @@ CLAUDE_MAX_TOKENS = {
 # None means "don't send output_config at all" — Haiku 4.5 rejects the effort
 # parameter outright, so this must stay a per-model opt-in rather than a
 # blanket default.
+# Selectable in the UI. "none" means send no output_config at all, which is
+# the only valid choice for models that reject the parameter (Haiku 4.5) and
+# a useful benchmark baseline elsewhere — it exercises each model's own
+# default rather than a level you picked.
+EFFORT_LEVELS = [
+    {"value": "none", "label": "none (model default)"},
+    {"value": "low", "label": "low"},
+    {"value": "medium", "label": "medium"},
+    {"value": "high", "label": "high"},
+    {"value": "xhigh", "label": "xhigh"},
+    {"value": "max", "label": "max"},
+]
+
+# Models that accept output_config.effort at all. Haiku 4.5 rejects it, so
+# sending a level there is a 400 rather than a slower answer — the control has
+# to be gated per model, not merely defaulted.
+EFFORT_CAPABLE = {"claude-opus-5", "claude-opus-4-7", "claude-sonnet-4-6"}
+
+# USD per 1M tokens (input, output), for the cost estimate in the status line.
+# A LOCAL ESTIMATE, not a bill: it ignores cache-write premiums and every
+# discount, and published prices change. It is here so a benchmark sweep can
+# be compared on cost as well as latency, which is the whole point of being
+# able to vary effort and budget.
+CLAUDE_PRICING = {
+    "claude-opus-5": (5.0, 25.0),
+    "claude-opus-4-7": (5.0, 25.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+}
+
 CLAUDE_EFFORT = {
     "claude-opus-5": "low",
     "claude-opus-4-7": "low",
@@ -333,7 +363,16 @@ def _spend_allowed() -> bool:
     return not in_production
 
 
-def _call_claude(model: str, user_prompt: str) -> str:
+def _call_claude(
+    model: str,
+    user_prompt: str,
+    max_tokens: int | None = None,
+    effort: str | None = None,
+) -> tuple:
+    """Returns (text, meta). `meta` carries what a benchmark needs — token
+    counts, the settings actually used, and stop_reason — because the point of
+    varying effort and budget is comparing the results, and a bare string
+    cannot be compared."""
     """Streaming Claude call with prompt caching on the system block.
 
     We stream — even though we wait for the full response — because the
@@ -345,13 +384,18 @@ def _call_claude(model: str, user_prompt: str) -> str:
     import anthropic
 
     client = anthropic.Anthropic()
-    max_tokens = CLAUDE_MAX_TOKENS.get(model, 32000)
+    max_tokens = int(max_tokens or CLAUDE_MAX_TOKENS.get(model, 32000))
+
+    # Resolve effort: the caller's choice, falling back to the per-model
+    # default. "none" is a real choice, not a missing value — it means send
+    # no output_config so the model's own default applies.
+    if effort is None:
+        effort = CLAUDE_EFFORT.get(model) or "none"
+    applied_effort = effort if (effort != "none" and model in EFFORT_CAPABLE) else None
 
     kwargs = {}
-    effort = CLAUDE_EFFORT.get(model)
-    if effort:
-        # Only sent for models that accept it — see CLAUDE_EFFORT.
-        kwargs["output_config"] = {"effort": effort}
+    if applied_effort:
+        kwargs["output_config"] = {"effort": applied_effort}
 
     with client.messages.stream(
         model=model,
@@ -399,7 +443,20 @@ def _call_claude(model: str, user_prompt: str) -> str:
             f"Claude hit max_tokens={max_tokens} and was cut off mid-response. "
             f"Raise `CLAUDE_MAX_TOKENS[{model!r}]` or ask for a smaller scene."
         )
-    return text
+    usage = getattr(final, "usage", None)
+    meta = {
+        "model": model,
+        "effort": applied_effort or "none",
+        "effort_ignored": bool(
+            effort and effort != "none" and model not in EFFORT_CAPABLE
+        ),
+        "max_tokens": max_tokens,
+        "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+        "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+        "cache_read": getattr(usage, "cache_read_input_tokens", 0) or 0,
+        "stop_reason": stop_reason,
+    }
+    return text, meta
 
 
 def _call_gemini(model: str, user_prompt: str) -> str:
@@ -513,6 +570,44 @@ def _parse_and_normalize(raw: str) -> Dict[str, Any]:
     return parsed
 
 
+def _benchmark_status(provider, model, element_count, elapsed, meta) -> str:
+    """One line carrying everything a sweep needs to be compared.
+
+    Elements alone say nothing about whether a setting was worth it — the
+    interesting question is elements per second and per dollar, at a given
+    effort and budget. So the line reports the settings ACTUALLY applied
+    (which is not always what was asked: effort is silently dropped on models
+    that reject it) alongside tokens, latency and an estimated cost.
+    """
+    plural = "s" if element_count != 1 else ""
+    head = f"{model} — {element_count} element{plural} in {elapsed:.0f}s"
+    if not meta:
+        return f"Generated via {provider} / {head}."
+
+    bits = [f"effort={meta['effort']}", f"max_tokens={meta['max_tokens']:,}"]
+    if meta.get("effort_ignored"):
+        bits.append("(effort ignored — model rejects it)")
+
+    out_tok, in_tok = meta["output_tokens"], meta["input_tokens"]
+    bits.append(f"{out_tok:,} out / {in_tok:,} in")
+    if meta.get("cache_read"):
+        bits.append(f"{meta['cache_read']:,} cached")
+
+    price = CLAUDE_PRICING.get(model)
+    if price and (out_tok or in_tok):
+        cost = (in_tok * price[0] + out_tok * price[1]) / 1_000_000
+        # Estimate, not a bill — see CLAUDE_PRICING.
+        bits.append(f"~${cost:.3f}")
+
+    if element_count:
+        bits.append(f"{elapsed / element_count:.1f}s/element")
+
+    if meta.get("stop_reason") and meta["stop_reason"] != "end_turn":
+        bits.append(f"stop={meta['stop_reason']}")
+
+    return f"{head}  ·  " + "  ·  ".join(bits)
+
+
 def _format_parse_error(raw: str, exc: json.JSONDecodeError) -> str:
     """Show a window of text around the failure position so the Parsed tab
     actually helps you understand what broke."""
@@ -602,14 +697,38 @@ component = dmc.Stack(
                                 span={"base": 12, "sm": 4},
                             ),
                             dmc.GridCol(
+                                dmc.Select(
+                                    id="ai-effort",
+                                    label="Effort",
+                                    description="Thinking depth",
+                                    data=EFFORT_LEVELS,
+                                    value=CLAUDE_EFFORT.get(
+                                        CLAUDE_MODELS[0]["value"]
+                                    ) or "low",
+                                ),
+                                span={"base": 6, "sm": 2},
+                            ),
+                            dmc.GridCol(
+                                dmc.NumberInput(
+                                    id="ai-max-tokens",
+                                    label="Max tokens",
+                                    description="Caps thinking + output together",
+                                    value=CLAUDE_MAX_TOKENS[CLAUDE_MODELS[0]["value"]],
+                                    min=1000,
+                                    max=128000,
+                                    step=4000,
+                                ),
+                                span={"base": 6, "sm": 2},
+                            ),
+                            dmc.GridCol(
                                 dmc.NumberInput(
                                     id="ai-seed",
-                                    label="Element-id seed",
-                                    description="Used for stable replay; bump to get a fresh scene id namespace",
+                                    label="Seed",
+                                    description="Bump for a fresh id namespace",
                                     value=1,
                                     min=1,
                                 ),
-                                span={"base": 12, "sm": 5},
+                                span={"base": 12, "sm": 1},
                             ),
                         ],
                     ),
@@ -827,6 +946,27 @@ def _sync_models(provider):
     return data, data[0]["value"]
 
 
+@callback(
+    Output("ai-effort", "value"),
+    Output("ai-max-tokens", "value"),
+    Output("ai-effort", "disabled", allow_duplicate=True),
+    Input("ai-model", "value"),
+    prevent_initial_call=True,
+)
+def _sync_model_defaults(model):
+    """Move effort and budget to this model's defaults when the model changes.
+
+    Without this, switching models silently carries the previous model's
+    settings over — which quietly invalidates a comparison, because you would
+    be reading a difference between models that is partly a difference in
+    configuration. The effort control is also disabled outright on models that
+    reject the parameter, so the UI cannot offer a choice the API will 400 on.
+    """
+    capable = model in EFFORT_CAPABLE
+    effort = (CLAUDE_EFFORT.get(model) or "none") if capable else "none"
+    return effort, CLAUDE_MAX_TOKENS.get(model, 32000), not capable
+
+
 # Clear stays SYNCHRONOUS and is its own callback. It is instant, and routing
 # it through a job queue would add a round trip to a button whose whole value
 # is that it responds immediately. Splitting it also keeps `ctx.triggered_id`
@@ -863,6 +1003,8 @@ def _clear(_clicks):
     Input("ai-generate-btn", "n_clicks"),
     State("ai-provider", "value"),
     State("ai-model", "value"),
+    State("ai-effort", "value"),
+    State("ai-max-tokens", "value"),
     State("ai-prompt", "value"),
     running=[
         # Flip these on for the duration of the callback, off when it
@@ -874,6 +1016,8 @@ def _clear(_clicks):
         (Output("ai-prompt", "disabled"), True, False),
         (Output("ai-provider", "disabled"), True, False),
         (Output("ai-model", "disabled"), True, False),
+        (Output("ai-effort", "disabled"), True, False),
+        (Output("ai-max-tokens", "disabled"), True, False),
         (
             Output("ai-processing-banner", "style"),
             {"display": "block", "marginTop": 4, "marginBottom": 4},
@@ -888,7 +1032,7 @@ def _clear(_clicks):
     # when no manager is available, so the page still works on a bare install.
     background=_background.enabled(),
 )
-def _generate(_gen_clicks, provider, model, prompt):
+def _generate(_gen_clicks, provider, model, effort, max_tokens, prompt):
     if not prompt or not prompt.strip():
         return no_update, "Write a prompt first.", "yellow", no_update, no_update, no_update
 
@@ -944,9 +1088,9 @@ def _generate(_gen_clicks, provider, model, prompt):
     started = time.monotonic()
     try:
         if provider == "claude":
-            raw = _call_claude(model, prompt.strip())
+            raw, meta = _call_claude(model, prompt.strip(), max_tokens, effort)
         else:
-            raw = _call_gemini(model, prompt.strip())
+            raw, meta = _call_gemini(model, prompt.strip()), None
     except Exception as exc:  # noqa: BLE001 - surface any provider error
         traceback.print_exc()
         return (
@@ -996,8 +1140,5 @@ def _generate(_gen_clicks, provider, model, prompt):
     # the reader no way to tell a slow run from a broken one — which is
     # exactly how a 473-second run got reported as a hang.
     elapsed = time.monotonic() - started
-    status = (
-        f"Generated via {provider} / {model} — {element_count} element"
-        f"{'s' if element_count != 1 else ''} in {elapsed:.0f}s."
-    )
+    status = _benchmark_status(provider, model, element_count, elapsed, meta)
     return cmd, status, "green", pretty_raw, pretty_parsed, raw
