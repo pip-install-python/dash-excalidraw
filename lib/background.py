@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import tempfile
 
 logger = logging.getLogger(__name__)
@@ -64,8 +65,43 @@ def _broker_url() -> str | None:
 
 
 def _build():
-    if os.environ.get("BACKGROUND_CALLBACKS", "").strip().lower() in {"off", "0", "false"}:
+    choice = os.environ.get("BACKGROUND_CALLBACKS", "").strip().lower()
+
+    if choice in {"off", "0", "false"}:
         _say("OFF (BACKGROUND_CALLBACKS) — generation runs synchronously")
+        return None
+
+    # DEFAULT OFF ON macOS. A deliberate retreat, not an oversight.
+    #
+    # diskcache runs the job in a forked child, and on this app that child
+    # dies on macOS WITHOUT raising. Dash's dispatcher then sees
+    # `not job_running and output is UNDEFINED`, answers the browser 204, and
+    # the page waits forever for a job that is already gone. Had the worker
+    # merely raised, Dash would have surfaced a BackgroundCallbackError — so
+    # the child is being killed, not faulting.
+    #
+    # The likely mechanism is macOS fork-safety: the fork happens from a
+    # werkzeug REQUEST THREAD, and a forked child of a multithreaded process
+    # carrying Objective-C runtime state aborts instead of faulting, which
+    # matches "killed, not raised" exactly. Forking from the MAIN thread works
+    # fine here — which is precisely why every isolated test passed while the
+    # running server kept failing.
+    #
+    # That diagnosis is UNCONFIRMED. Shipping a default that has failed three
+    # times on a real machine, on the strength of an unconfirmed theory, is
+    # the wrong trade. Linux forks cleanly and is where this actually matters
+    # (render.yaml runs two gunicorn workers), so background stays ON there
+    # and off here, where a blocked worker costs one developer some patience
+    # rather than a live site.
+    #
+    # BACKGROUND_CALLBACKS=on opts in on macOS, and sets the ObjC fork-safety
+    # escape hatch below.
+    if sys.platform == "darwin" and choice not in {"on", "1", "true"}:
+        _say(
+            "OFF on macOS by default — the forked worker dies here and the "
+            "page hangs. Generation runs synchronously (it blocks a worker "
+            "for its duration). BACKGROUND_CALLBACKS=on to try it anyway."
+        )
         return None
 
     broker = _broker_url()
@@ -114,17 +150,20 @@ def _build():
         # from the request handler before the callback touches anything
         # thread-owned, which is the same bargain every Dash + diskcache setup
         # on Linux already makes silently.
+        if sys.platform == "darwin":
+            # Standard workaround for the abort described above. Must be set
+            # before the fork; harmless on other platforms.
+            os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+
         if multiprocess.get_start_method(allow_none=True) != "fork":
             try:
                 multiprocess.set_start_method("fork", force=True)
                 _say("start method set to fork")
             except (RuntimeError, ValueError) as exc:
                 _say(
-                    "COULD NOT select fork; on a spawn platform the worker "
-                    "method (%s). On a spawn platform the worker re-imports "
-                    "__main__ and will fail; set BACKGROUND_CALLBACKS=off to "
-                    "run generation synchronously instead.",
-                    exc,
+                    f"COULD NOT select the fork start method ({exc}). On a "
+                    "spawn platform the worker re-imports __main__ and dies; "
+                    "set BACKGROUND_CALLBACKS=off to run synchronously."
                 )
     except ImportError:
         logger.warning(
