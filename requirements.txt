@@ -108,6 +108,21 @@ dash-improve-my-llms[flask]>=2.3.4
 # dash-improve-my-llms[quart]>=2.3.4     # Dash 4.4+ Quart backend
 # dash-improve-my-llms[all]>=2.3.4       # all three
 
+# Background callbacks — /ai-agent's model call
+#
+# A generation takes ~100s on a thinking model even with the token budget and
+# effort bounded. Run synchronously it holds a gunicorn worker for that whole
+# time, and render.yaml runs TWO workers: two concurrent generations make the
+# entire site unreachable, /healthz included, which the CD probe reads as an
+# unhealthy deploy. These three are what dash's DiskcacheManager needs.
+#
+# For a multi-instance deployment set CELERY_BROKER_URL (or REDIS_URL) and add
+# celery[redis] — the queue then lives outside any single process. Diskcache is
+# correct for local development and a single host; see lib/background.py.
+diskcache>=5.6.0
+multiprocess>=0.70.0
+psutil>=5.9.0
+
 # Production Servers
 # - gunicorn   -> WSGI (Flask)
 # - uvicorn    -> ASGI (FastAPI / Quart)

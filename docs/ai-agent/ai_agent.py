@@ -37,6 +37,7 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html, no_update
 
 from dash_excalidraw import DashExcalidraw
+from lib import background as _background
 from docs._shared import canvas_frame, sync_canvas_theme
 
 sync_canvas_theme("ai-canvas")
@@ -826,6 +827,32 @@ def _sync_models(provider):
     return data, data[0]["value"]
 
 
+# Clear stays SYNCHRONOUS and is its own callback. It is instant, and routing
+# it through a job queue would add a round trip to a button whose whole value
+# is that it responds immediately. Splitting it also keeps `ctx.triggered_id`
+# out of the background worker, where callback context is a different animal.
+#
+# It writes the same Output as the generator, so one of the two must declare
+# allow_duplicate — this one, because it is the secondary writer.
+@callback(
+    Output("ai-canvas", "command", allow_duplicate=True),
+    Output("ai-status", "children", allow_duplicate=True),
+    Output("ai-status", "color", allow_duplicate=True),
+    Output("ai-raw", "children", allow_duplicate=True),
+    Output("ai-parsed", "children", allow_duplicate=True),
+    Output("ai-last-raw", "data", allow_duplicate=True),
+    Input("ai-clear-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def _clear(_clicks):
+    cmd = {
+        "id": f"clear-{uuid.uuid4()}",
+        "type": "updateScene",
+        "payload": {"elements": []},
+    }
+    return cmd, "Canvas cleared.", "gray", "", "", ""
+
+
 @callback(
     Output("ai-canvas", "command"),
     Output("ai-status", "children"),
@@ -834,7 +861,6 @@ def _sync_models(provider):
     Output("ai-parsed", "children"),
     Output("ai-last-raw", "data"),
     Input("ai-generate-btn", "n_clicks"),
-    Input("ai-clear-btn", "n_clicks"),
     State("ai-provider", "value"),
     State("ai-model", "value"),
     State("ai-prompt", "value"),
@@ -856,17 +882,13 @@ def _sync_models(provider):
         (Output("ai-canvas-overlay", "visible"), True, False),
     ],
     prevent_initial_call=True,
+    # Runs in a separate process when a manager is configured, so a 100-second
+    # generation does not hold a request worker and take the rest of the site
+    # — /healthz included — down with it. Falls back to a synchronous callback
+    # when no manager is available, so the page still works on a bare install.
+    background=_background.enabled(),
 )
-def _generate(_gen_clicks, _clear_clicks, provider, model, prompt):
-    trigger = dash.ctx.triggered_id
-    if trigger == "ai-clear-btn":
-        cmd = {
-            "id": f"clear-{uuid.uuid4()}",
-            "type": "updateScene",
-            "payload": {"elements": []},
-        }
-        return cmd, "Canvas cleared.", "gray", "", "", ""
-
+def _generate(_gen_clicks, provider, model, prompt):
     if not prompt or not prompt.strip():
         return no_update, "Write a prompt first.", "yellow", no_update, no_update, no_update
 

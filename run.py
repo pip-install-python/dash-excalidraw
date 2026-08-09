@@ -195,9 +195,19 @@ if MCP_ENABLED:
             f"{dash.__version__} has no MCP server (needs >= 4.3)."
         )
 
+# Background-callback manager. Imported and resolved BEFORE Dash() constructs,
+# because Dash imports the page modules during construction and /ai-agent asks
+# `background.enabled()` at import time to decide whether it may register its
+# generation callback as a background one. See lib/background.py for why that
+# page must not occupy a request worker.
+from lib import background as _background  # noqa: E402
+
+_BACKGROUND_MANAGER = _background.manager()
+
 app = Dash(
     __name__,
     backend=BACKEND,
+    background_callback_manager=_BACKGROUND_MANAGER,
     title=APP_TITLE,
     suppress_callback_exceptions=True,
     use_pages=True,
