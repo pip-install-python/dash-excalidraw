@@ -470,4 +470,7 @@ start_reporter()
 
 
 if __name__ == "__main__":
-    app.run(debug=False, host='0.0.0.0', port='8579')
+    # PORT is read from the environment so a second instance can run
+    # alongside the first without editing this file. Render supplies its own
+    # PORT and starts gunicorn rather than this block.
+    app.run(debug=False, host="0.0.0.0", port=os.environ.get("PORT", "8579"))

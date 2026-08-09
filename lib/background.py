@@ -51,6 +51,10 @@ def _broker_url() -> str | None:
 
 
 def _build():
+    if os.environ.get("BACKGROUND_CALLBACKS", "").strip().lower() in {"off", "0", "false"}:
+        logger.info("background callbacks: disabled by BACKGROUND_CALLBACKS")
+        return None
+
     broker = _broker_url()
     if broker:
         try:
@@ -76,8 +80,39 @@ def _build():
             )
 
     try:
+        import multiprocess
         import diskcache
         from dash import DiskcacheManager
+
+        # macOS (and Windows) default to the "spawn" start method, which makes
+        # the child RE-IMPORT the parent's __main__ module. For `python run.py`
+        # that means re-executing run.py — which fails outright, because Dash
+        # resolves its assets path from `__main__.__file__` and a spawned
+        # child's __main__ has no __file__. The worker dies before running a
+        # line of the callback, the job disappears, and the browser's poll gets
+        # a 204 and quietly stops. Nothing is logged, and the page just sits
+        # there: the failure is completely silent from both ends.
+        #
+        # Linux forks by default, so this never appears in CI or on Render —
+        # only on a developer's Mac, which is the worst place for it to hide.
+        #
+        # "fork" skips the re-import entirely. The documented caveat is that
+        # forking a process with live threads is unsafe; here the fork happens
+        # from the request handler before the callback touches anything
+        # thread-owned, which is the same bargain every Dash + diskcache setup
+        # on Linux already makes silently.
+        if multiprocess.get_start_method(allow_none=True) != "fork":
+            try:
+                multiprocess.set_start_method("fork", force=True)
+                logger.info("background callbacks: start method set to fork")
+            except (RuntimeError, ValueError) as exc:
+                logger.warning(
+                    "background callbacks: could not select the fork start "
+                    "method (%s). On a spawn platform the worker re-imports "
+                    "__main__ and will fail; set BACKGROUND_CALLBACKS=off to "
+                    "run generation synchronously instead.",
+                    exc,
+                )
     except ImportError:
         logger.warning(
             "background callbacks: OFF — diskcache is not installed, so "
