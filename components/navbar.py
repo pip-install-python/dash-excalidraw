@@ -80,6 +80,7 @@ def create_content(data):
         "File uploads",
         "Collaboration",
         "AI agent",
+        "Benchmark",
     ]
 
     # Create a mapping of page names to their links
