@@ -37,6 +37,19 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
+
+def _say(msg: str) -> None:
+    """Boot diagnostics via print, not logging.
+
+    This module runs during run.py's import, BEFORE anything calls
+    logging.basicConfig() — pages/markdown.py does that later, during Dash()
+    construction. So logger.info() here goes to a root logger still at
+    WARNING and vanishes. That is not a style detail: it made the one signal
+    needed to diagnose a silent worker failure itself silent. Every other boot
+    line in run.py prints for the same reason.
+    """
+    print(f"[boilerplate] background: {msg}", flush=True)
+
 _MANAGER = None
 _RESOLVED = False
 
@@ -52,7 +65,7 @@ def _broker_url() -> str | None:
 
 def _build():
     if os.environ.get("BACKGROUND_CALLBACKS", "").strip().lower() in {"off", "0", "false"}:
-        logger.info("background callbacks: disabled by BACKGROUND_CALLBACKS")
+        _say("OFF (BACKGROUND_CALLBACKS) — generation runs synchronously")
         return None
 
     broker = _broker_url()
@@ -66,7 +79,7 @@ def _build():
                 broker=broker,
                 backend=os.environ.get("CELERY_RESULT_BACKEND") or broker,
             )
-            logger.info("background callbacks: Celery (broker configured)")
+            _say("Celery (broker configured)")
             return CeleryManager(app)
         except ImportError:
             # Named explicitly rather than swallowed: a deployment that sets a
@@ -104,10 +117,10 @@ def _build():
         if multiprocess.get_start_method(allow_none=True) != "fork":
             try:
                 multiprocess.set_start_method("fork", force=True)
-                logger.info("background callbacks: start method set to fork")
+                _say("start method set to fork")
             except (RuntimeError, ValueError) as exc:
-                logger.warning(
-                    "background callbacks: could not select the fork start "
+                _say(
+                    "COULD NOT select fork; on a spawn platform the worker "
                     "method (%s). On a spawn platform the worker re-imports "
                     "__main__ and will fail; set BACKGROUND_CALLBACKS=off to "
                     "run generation synchronously instead.",
@@ -128,7 +141,7 @@ def _build():
     root = os.environ.get("BACKGROUND_CACHE_DIR") or os.path.join(
         tempfile.gettempdir(), "excalidraw-background-cache"
     )
-    logger.info("background callbacks: diskcache at %s", root)
+    _say(f"diskcache at {root}")
     return DiskcacheManager(diskcache.Cache(root))
 
 
