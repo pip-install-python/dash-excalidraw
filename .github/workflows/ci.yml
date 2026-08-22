@@ -461,11 +461,22 @@ jobs:
 
           # Dash and nothing else: the site's dependency set must not have
           # been dragged in as a transitive requirement of the wheel.
+          #
+          # BASE requirements only. importlib.metadata.requires() also
+          # returns every optional-dependency line with its `extra == "..."`
+          # marker attached — anthropic, pytest, flask-socketio and the rest
+          # — and none of those is installed by a plain
+          # `pip install dash-excalidraw`. An earlier version of this check
+          # forgot that and failed on the [ai] extra.
           import importlib.metadata as md
           reqs = md.requires("dash-excalidraw") or []
-          print("declared requirements:", reqs)
-          assert all(r.split()[0].split(";")[0].strip().lower().startswith("dash")
-                     for r in reqs), f"unexpected runtime dependency: {reqs}"
+          base = [r for r in reqs if "extra ==" not in r]
+          print("base requirements:", base)
+          print("optional (not installed here):", len(reqs) - len(base))
+          names = {r.split(";")[0].split("[")[0].strip().lower()
+                   .split(">")[0].split("<")[0].split("=")[0].strip()
+                   for r in base}
+          assert names == {"dash"}, f"unexpected runtime dependency: {names}"
 
           # The one component, and the pure-Python helpers re-exported beside
           # it (dash_excalidraw/helpers.py — the file-externalization pair

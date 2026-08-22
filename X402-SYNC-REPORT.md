@@ -358,3 +358,49 @@ rights), so each cause below was reproduced locally rather than read.
   Each was verified to FAIL when the thing it guards is broken.
 
   Suite: 331 passed (was 328). flake8 clean. smoke_test 48/48.
+
+## gate-wave — round 3: the last real failure
+
+date: 2026-08-21
+run: CD #2 on main @ 6c0e4f9 — 12 success, 1 real failure, 1 advisory
+  failure (pip-audit, by design), 3 skipped.
+
+Round 2's four fixes all held. All six `docs-compat` legs pass, including
+the 4.2.0 and 4.3.0 rows added from the local measurement — CI independently
+confirming the floor. `verify the live site` is now correctly SKIPPED rather
+than failing misleadingly. `The wheel contains the package and nothing else`
+(the new zipfile scan) passes, so the wheel really was clean all along.
+
+One real failure remained, and it was the same step failing for a NEW reason
+— my extras-blind dependency assertion:
+
+  `importlib.metadata.requires("dash-excalidraw")` returns every optional
+  dependency too, each with its `extra == "..."` marker attached. This
+  package declares four extras (demo / ai / colab / dev), so the call
+  returns eleven lines of which only one — `dash>=3.0.3` — is a base
+  requirement. The assertion checked all eleven and flagged `anthropic`,
+  `pytest`, `flask-socketio` and four others as "unexpected runtime
+  dependencies" of a wheel that does not install any of them.
+
+  Fixed by filtering to lines with no `extra ==` marker and asserting the
+  resulting NAME SET is exactly `{"dash"}` — a stronger statement than the
+  prefix test it replaces, which `dash-mantine-components` would also have
+  satisfied.
+
+### The lesson, and what was done about it
+
+That step has now shipped two bugs in two rounds — first cwd-dependent,
+then extras-blind — and each cost a full CI run to discover, because
+nothing exercised the assertion locally.
+
+`tests/test_usage.py` was a `assert True` placeholder from the original
+rebuild. It is now the package's own test file and carries the same
+assertions the wheel job makes: the base dependency set is exactly `dash`,
+`__all__` is the component plus the three helpers, every prop survives
+`to_json` (the design constraint the whole component exists to satisfy),
+and the file-externalization helpers round-trip. Six tests, run in every
+pytest leg — so the next mistake in that CI step gets caught in two seconds
+on a laptop rather than in twelve minutes on a runner.
+
+  Suite: 336 passed (was 331). flake8 clean. smoke_test 48/48.
+
