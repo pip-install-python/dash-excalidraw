@@ -5,6 +5,7 @@ endpoint: /initial-data
 package: dash_excalidraw
 category: Getting started
 icon: mdi:database-import-outline
+lastmod: 2026-08-08
 ---
 
 .. llms_copy::initialData

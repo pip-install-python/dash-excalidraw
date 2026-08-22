@@ -13,12 +13,15 @@ reported back as this app being slow.
 """
 from __future__ import annotations
 
+import os
+
 import dash
 
 
 def health_payload(backend: str) -> dict:
-    """The probe body. ``ok`` is what the battery gates on; ``app`` is what
-    makes a mis-deploy visible.
+    """The probe body. ``ok`` is what the battery gates on; ``app`` says
+    WHO answered and ``build`` says WHICH artifact — the two fields that
+    make a mis-deploy visible.
 
     THE ``app`` FIELD IS NOT DECORATION. Without it a probe cannot tell which
     satellite answered, only that *something* did — so a host serving another
@@ -34,12 +37,25 @@ def health_payload(backend: str) -> dict:
     """
     from lib.satellite_reporter import app_key
 
-    return {
+    payload = {
         "ok": True,
         "app": app_key(),
         "backend": backend,
         "dash_version": dash.__version__,
     }
+    # Which commit the RUNNING instance was built from. This is what lets CD
+    # verify the artifact it shipped rather than whichever build happens to
+    # be serving: a Render service with a disk restarts with a blip instead
+    # of overlapping instances, so a bare 200 proves nothing about WHICH
+    # build answered (the muicharts finding, 2026-08-21 — its battery had
+    # been verifying the previous release on every run, invisibly, until a
+    # new surface made the race lose). Optional on purpose: omitted where
+    # the platform variable does not exist, so the fleet's probe contract
+    # is unchanged.
+    build = os.environ.get("RENDER_GIT_COMMIT")
+    if build:
+        payload["build"] = build
+    return payload
 
 
 def register_health_route(app, backend: str) -> None:

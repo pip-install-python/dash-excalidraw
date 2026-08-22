@@ -6,6 +6,7 @@ package: dash_excalidraw
 category: Advanced
 icon: mdi:chart-box-outline
 tier: auth
+lastmod: 2026-08-09
 ---
 
 .. llms_copy::Benchmark

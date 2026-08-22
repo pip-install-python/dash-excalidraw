@@ -5,6 +5,7 @@ endpoint: /collaboration
 package: dash_excalidraw
 category: Advanced
 icon: mdi:account-group-outline
+lastmod: 2026-08-08
 ---
 
 .. llms_copy::Collaboration

@@ -5,6 +5,7 @@ endpoint: /file-uploads
 package: dash_excalidraw
 category: Advanced
 icon: mdi:cloud-upload-outline
+lastmod: 2026-08-08
 ---
 
 .. llms_copy::File uploads

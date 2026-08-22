@@ -188,3 +188,95 @@ def test_home_markdown_is_not_a_stale_copy_of_the_old_opening():
     """`# Welcome to:` was the old H1 — an identity that named nothing."""
     body = Path(REPO_ROOT / "pages" / "home.md").read_text()
     assert "# Welcome to:" not in body
+
+
+# ---------------------------------------------------------------------------
+# Version claims are DERIVED, never written. "Powered by dash-improve-my-llms
+# 2.3.4" served on /llms.txt for months on the reference host while a newer
+# package was actually running the site — the most-read surface in the
+# network publishing a false fact about itself. Prose writes
+# {{VERSION:<distribution>}} (any installed package — this satellite can use
+# it for `dash-excalidraw` itself); pages/markdown.py substitutes the
+# installed version via lib/versions.py before any consumer sees the text.
+#
+# This host declares no version in prose today. The tests below are still
+# the right ones to carry: the sweep is what keeps it that way, and the
+# mechanism tests are what make writing a placeholder safe the first time
+# someone does. The template's extra assertion — that /llms.txt's
+# "Powered by" line reports the installed package — is deliberately NOT
+# ported: there is no such line here, so it would assert prose rather than
+# behaviour.
+# ---------------------------------------------------------------------------
+
+
+def test_no_source_markdown_hardcodes_a_package_version():
+    """The placeholder is the only way prose may state a package version.
+
+    Sweeps the SOURCE files, so a hardcoded number is caught even on pages
+    these tests never fetch. CHANGELOGs and history-narrating docs may name
+    versions in context ("until 2.3.4 landed"), and install floors
+    (`pkg>=2.5.1`) are requirements, not claims; what prose may not do is
+    claim a version as current — which always takes the bold form the
+    'Powered by' lines use, next to the package's name or PyPI link.
+    """
+    claim = re.compile(
+        r"(dash-improve-my-llms|dash-excalidraw|pypi\.org/project/)"
+        r"[^\n]*?\*\*\d+\.\d+(\.\d+)?\*\*"
+    )
+    offenders = []
+    for md in [REPO_ROOT / "pages" / "home.md", *(REPO_ROOT / "docs").rglob("*.md")]:
+        for line in md.read_text().splitlines():
+            if claim.search(line):
+                offenders.append(f"{md.relative_to(REPO_ROOT)}: {line.strip()[:80]}")
+    assert offenders == [], f"hardcoded package versions in prose: {offenders}"
+
+
+def test_version_placeholder_never_leaks_unsubstituted(client):
+    for path in ("/llms.txt", "/", "/commands/llms.txt"):
+        body = client.get(path).text
+        assert "{{DIMLL_VERSION}}" not in body, f"unsubstituted placeholder on {path}"
+        assert "{{VERSION:" not in body, f"unsubstituted placeholder on {path}"
+
+
+def test_substitution_works_for_any_installed_distribution():
+    """The generic form is what lets every satellite state ITS package's
+    version — the mechanism must not be special-cased to one package."""
+    from importlib.metadata import version
+
+    from lib.versions import substitute_versions
+
+    assert substitute_versions("dash **{{VERSION:dash}}**") == (
+        f"dash **{version('dash')}**"
+    )
+
+
+def test_legacy_placeholder_still_resolves():
+    """{{DIMLL_VERSION}} predates the generic form; forks may still write it."""
+    import dash_improve_my_llms as pkg
+
+    from lib.versions import substitute_versions
+
+    assert substitute_versions("{{DIMLL_VERSION}}") == pkg.__version__
+
+
+def test_a_version_claim_for_an_absent_package_fails_the_boot():
+    """A claim that cannot be true must fail loudly at load time, not leak."""
+    import pytest
+
+    from lib.versions import substitute_versions
+
+    with pytest.raises(LookupError, match="not-a-real-distribution"):
+        substitute_versions(
+            "{{VERSION:not-a-real-distribution}}", source="docs/x.md"
+        )
+
+
+def test_code_examples_keep_the_placeholder_syntax_verbatim():
+    """A doc that SHOWS the syntax in a fence must not have it substituted —
+    that would render the example as a number and undocument the mechanism."""
+    from lib.versions import substitute_versions
+
+    fenced = "```markdown\n**{{VERSION:dash}}**\n```\n"
+    assert substitute_versions(fenced) == fenced
+    inline = "write `{{VERSION:dash}}` in prose"
+    assert substitute_versions(inline) == inline

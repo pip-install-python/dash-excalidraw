@@ -1,82 +1,219 @@
-# Render Blueprint for excalidraw.2plot.dev
+# Render Blueprint — dash-excalidraw docs (one web service, docker runtime),
+# fronted by https://excalidraw.2plot.dev.
 #
-# Applies to a new service with `render blueprint launch`, and documents the
-# deployment for anyone forking this template. Values marked sync:false are
-# per-deployment and must be set in the Render dashboard.
+# THIS HOST HAS NEVER DEPLOYED. Everything below is a declaration; nothing in
+# this file creates a service, attaches a disk, or sets a variable on a
+# running instance. The owner-side steps that do are listed in
+# DEPLOY-READINESS.md at the repo root — work through that file, not this one.
+#
+# TWO RULES THAT HAVE COST THE FLEET REAL OUTAGES, both worth re-reading
+# before editing anything here:
+#
+#  1. **Blueprint envVars apply on a BLUEPRINT SYNC, not on a git-push
+#     autoDeploy.** A value added here does nothing to the live service until
+#     someone syncs the blueprint. The declarations are documentation of what
+#     this app reads; the dashboard is what the running service actually gets.
+#     The acceptance check is a declared-vs-live env diff per host, which is
+#     how leaflet found seven declared variables absent in production —
+#     including PAGE_VISIBILITY_FILE, meaning every control-board toggle reset
+#     on every deploy.
+#
+#  2. **A declared disk attaches nothing.** leaflet ran for weeks with the
+#     `disk:` block below and no actual disk: the app mkdir'd /var/data on the
+#     container filesystem and every deploy silently wiped both the analytics
+#     ledger and the control-board store. Verify in the dashboard's Disks tab,
+#     or trust the boot guard — a `[visibility]` WARNING in the deploy log
+#     names exactly which half is missing, and its ABSENCE is the pass.
+#
+# ---------------------------------------------------------------------------
+# ENV GROUPS — the shared values are NOT declared in this file, deliberately.
+#
+# Render env groups apply to every linked service, and a service-level
+# variable of the same name OVERRIDES the group value. So a copy of a
+# group-owned variable declared here would, on the next blueprint sync,
+# become a service-level shadow that silently masks future group edits —
+# recreating the exact drift class the groups were created to end.
+#
+# Link these three to this service (owner-side, in the dashboard). Between
+# them they supply the shared secret, the reporting cadence, BOTH /var/data
+# paths, and the entire Clerk block including the sign-in redirect:
+#
+#   A. 2plot-network-shared      — link to EVERY service
+#        CROSS_APP_WEBHOOK_SECRET   the one shared HMAC secret; hub and
+#                                   satellite must hold the identical value
+#                                   or verification fails as a silent 400
+#        ADMIN_EMAILS               admin-tier allowlist (lib.auth.is_admin_user)
+#        ANALYTICS_GEO_LOOKUP=0     Cloudflare already sends the country header
+#        AD_SERVER_URL              https://2plot.dev
+#        NETWORK_BULLETIN_URL       https://2plot.dev/api/network/bulletin
+#
+#   B. 2plot-satellite-reporting — every disk-bearing reporter
+#        SATELLITE_TRAFFIC_URL      https://2plot.ai/api/satellite/traffic
+#        SATELLITE_REPORT_INTERVAL_S=900   15 min, not the code default of
+#                                   hourly: the fleet is on paid instances and
+#                                   the hub board reads near-real-time
+#        SATELLITE_REPORT_DELAY_S=90
+#        SATELLITE_PRESENCE_INTERVAL_S=60  the separate presence beacon that
+#                                   drives the hub's live "active now" count
+#        TRAFFIC_ANALYTICS_FILE     /var/data/visitor_analytics.json
+#        PAGE_VISIBILITY_FILE       /var/data/page_visibility.json
+#
+#   C. 2plot-clerk-satellite     — link when this host's Clerk turns on
+#        CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY   one production Clerk
+#                                   instance network-wide, so both are shared
+#        CLERK_FRONTEND_API         https://clerk.2plot.ai
+#        CLERK_SIGN_IN_URL / CLERK_SIGN_UP_URL      accounts.2plot.ai
+#        CLERK_IS_SATELLITE=true
+#        CLERK_SATELLITE_DOMAIN=2plot.dev   the REGISTERED satellite domain,
+#                                   deliberately NOT this host: every
+#                                   *.2plot.dev docs host is an allowed
+#                                   SUBDOMAIN of the 2plot.dev satellite, and
+#                                   clerk.excalidraw.2plot.dev is NXDOMAIN
+#        CLERK_SATELLITE_SIGN_IN_REDIRECT=https://2plot.ai/onboarding
+#                                   THE return trip. Unset, sign-in falls
+#                                   through to the Clerk Account Portal and
+#                                   the user authenticates successfully and
+#                                   STAYS on the primary — no error anywhere.
+#                                   lib/auth.py warns at boot when it is unset
+#                                   OR not an absolute URL; the ABSENCE of
+#                                   those two warnings is the acceptance check.
+#
+# ORDER MATTERS: link the group BEFORE deleting any service-level copy.
+# Deleting first is an outage — it happened on boilerplate and leaflet, where
+# clerk_enabled() went False and the sign-in avatar simply vanished.
+# ---------------------------------------------------------------------------
 services:
   - type: web
-    name: excalidraw-2plot-dev
-    runtime: python
+    name: dash-excalidraw-docs
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Starter, not free. The free tier sleeps after ~15 minutes idle,
+    # cold-starts on the next request, and its evictions swallow unreported
+    # analytics — and a disk-bearing service cannot be free anyway.
     plan: starter
     region: oregon
     branch: main
-    # Two commands, not one: markdown2dash 0.1.2 declares gunicorn<22 against
-    # the CVE-driven gunicorn>=23 floor in requirements.txt, so it is installed
-    # without its dependency graph. Same pair as the Dockerfile and CI.
-    buildCommand: pip install -r requirements.txt && pip install --no-deps markdown2dash==0.1.2
-    startCommand: gunicorn run:server -b 0.0.0.0:$PORT --workers 2 --timeout 60
+    autoDeploy: true
+    # /healthz is the network convention (lib/health.py) and is excluded from
+    # traffic counts, so it makes a cleaner check than /. Its `app` field says
+    # WHO answered and its `build` field says WHICH commit — the two fields
+    # that make a mis-deploy visible rather than merely green.
     healthCheckPath: /healthz
+    # Render provisions the certificate once the CNAME resolves. The
+    # *.onrender.com hostname keeps working and is NOT the canonical origin —
+    # every page advertises excalidraw.2plot.dev, so hits on the Render
+    # hostname consolidate onto the custom domain instead of competing.
     domains:
       - excalidraw.2plot.dev
+
     envVars:
-      # THE value to get right. It drives <link rel="canonical">, sitemap.xml
-      # and the absolute URLs in llms.txt. A fork that leaves this unset
-      # inherits the boilerplate's own domain and tells Google it is a
-      # duplicate — so lib/constants.py refuses to boot on Render without it.
+      # ---- Identity: one value per service, never grouped ----------------
+
+      # THE value to get right. It drives <link rel="canonical">, sitemap.xml,
+      # og:url and every absolute URL in llms.txt. A fork that leaves this
+      # unset inherits the template's domain and tells Google it is a
+      # duplicate — so lib/constants.require_owned_base_url() refuses to boot
+      # on Render without it, and refuses a *.onrender.com value too.
       - key: APP_BASE_URL
         value: https://excalidraw.2plot.dev
 
-      - key: PYTHON_VERSION
-        value: "3.12.0"
-
-      # flask | fastapi | quart. FastAPI and Quart need the matching dash
-      # extra installed and an ASGI start command (uvicorn), so switching this
-      # alone is not enough.
-      - key: DASH_BACKEND
-        value: flask
-
-      # Dash 4.3+ MCP server. Off by default: it is a live introspection
-      # surface on a public host.
-      - key: DASH_MCP_ENABLED
-        value: "0"
-
-      # Network analytics — the hourly signed rollup POSTed to 2plot.ai.
-      # Without the secret, reporting is off and the app says so at startup.
-      - key: CROSS_APP_WEBHOOK_SECRET
-        sync: false
-      # Also the bulletin's identity to the hub (lib/bulletin.py), so a fork
-      # that changes this stops receiving the boilerplate's announcements.
+      # This app's key in the hub's network directory — what the traffic
+      # reporter, hub_client and the bulletin all identify as. run.py claims
+      # the same string via os.environ.setdefault before any hub-facing
+      # import (the FORK POINT), because lib/satellite_reporter.py is a
+      # byte-copy of the template's and its own fallback says "boilerplate".
+      # This row is production's belt to run.py's braces.
       - key: SATELLITE_APP_KEY
         value: excalidraw
 
       # This app's identity to the 2plot.dev ad network (lib/ad_client.py).
-      # Set explicitly rather than left to the code default so the value is
-      # visible here — and deliberately the SAME short key as
-      # SATELLITE_APP_KEY above, so /admin/ad-board, /traffic and the bulletin
-      # all name this app identically.
+      # Deliberately the SAME short key as SATELLITE_APP_KEY, so
+      # /admin/ad-board, /traffic and the bulletin all name this app
+      # identically. CHANGING IT SPLITS HISTORY: the ad server keys
+      # impressions and clicks by `app`.
       - key: AD_APP_ID
         value: excalidraw
 
-      # Hub-published tips and announcements in the llms.txt viewer header.
-      # Unset, the header still renders on the package's defaults with an
-      # "No announcements." empty state — no error either way, so the boot log
-      # line "network bulletin: ..." is how you tell which state you are in.
-      - key: NETWORK_BULLETIN_URL
-        value: https://2plot.dev/api/network/bulletin
+      # Signs the Flask session and the __dca_identity cookie. Without it
+      # dash-clerk-auth falls back to a PUBLIC dev default string — anyone
+      # could mint a valid identity cookie for this host. UNIQUE per service:
+      # never share it, and never move it into a group.
+      - key: SESSION_SECRET
+        generateValue: true
 
-      # Behind Cloudflare the country header is already present, so the
-      # ip-api.com lookup is redundant latency.
-      - key: ANALYTICS_GEO_LOOKUP
+      # ---- Runtime shape --------------------------------------------------
+
+      # flask | fastapi | quart. The Dockerfile also sets this; declared here
+      # so the value is visible where the service is described. FastAPI and
+      # Quart need the matching dash extra and an ASGI start command
+      # (uvicorn), so flipping this alone is not enough.
+      - key: DASH_BACKEND
+        value: flask
+
+      # Dash 4.3+ MCP server. Off: it is a live introspection surface on a
+      # public host.
+      - key: DASH_MCP_ENABLED
         value: "0"
 
-      # The hub takes the LAST report for a given (app, date). On an ephemeral
-      # filesystem a mid-day deploy wipes the ledger and the next hourly report
-      # overwrites the day's real total with whatever accrued since the
-      # restart. The disk below is what stops that.
-      - key: TRAFFIC_ANALYTICS_FILE
-        value: /var/data/visitor_analytics.json
+      # WEB_CONCURRENCY is deliberately NOT set: the Dockerfile's default of 2
+      # gunicorn workers is right for this instance size, and the control
+      # board's mtime-based cross-worker reload makes multi-worker safe. Set
+      # it only with a measured reason.
+
+      # ---- The gate: SHIPS DARK -------------------------------------------
+      #
+      # Every row below is set to the value that changes nothing a visitor
+      # sees. That is the whole point of a dark launch: the verdict plumbing,
+      # the gate cards, the control board and /api/agent-key all go live and
+      # the site behaves exactly as it did, so the eventual flip is measured
+      # against a host already proven healthy.
+      #
+      # They are set EXPLICITLY even though unset means the same thing, for
+      # two reasons: the declared-vs-live env diff then flags their absence as
+      # drift forever, and the flip becomes a VALUE EDIT on an existing
+      # variable rather than a variable-add — which keeps "which hosts are
+      # flipped" a one-glance read of the dashboard.
+
+      # THE per-host gate switch. Flip to `auth` and every docs page whose
+      # frontmatter does not pin a tier shows the sign-in card to anonymous
+      # browsers. Rollback is flipping it back — env only, no code revert.
+      # The funnel's front door (`/`) and the corpus pseudo-paths are pinned
+      # public in run.py and never inherit it. /ai-agent is already `auth` in
+      # its own frontmatter (it spends real API credits) and is gated
+      # independently of this value.
+      - key: PAGE_DEFAULT_TIER
+        value: public
+
+      # Access tiers for the tiered corpus documents (/llms-small.txt,
+      # /llms-full.txt). Registered in run.py with an explicit `or "public"`
+      # so they never inherit PAGE_DEFAULT_TIER: gating the interactive site
+      # must not silently gate the corpus too.
+      - key: LLMS_SMALL_TIER
+        value: public
+      - key: LLMS_FULL_TIER
+        value: public
+
+      # LLMS_PUBLIC_DEFAULT is deliberately ABSENT, fleet-wide, until phase 4.
+      # Unset behaves as open, which is the data-window posture: machine
+      # surfaces (the llms.txt family, crawler HTML, the prerender) keep
+      # serving prose on auth pages so the crawl-demand measurement survives
+      # the human gate. Its FIRST APPEARANCE on any host IS the agent flip —
+      # which is exactly why it is not declared here as a no-op.
 
     disk:
+      # BOTH persistent stores live here: the analytics ledger
+      # (TRAFFIC_ANALYTICS_FILE) and the control-board overrides
+      # (PAGE_VISIBILITY_FILE), both supplied by env group B.
+      #
+      # Without it, the hub takes the LAST report for a given (app, date) and
+      # a mid-day deploy wipes the ledger — so the next report overwrites the
+      # day's real total with whatever accrued since the restart — while every
+      # control-board toggle resets on every deploy.
+      #
+      # Trade-off, accepted once fleet-wide: a disk-bearing service restarts
+      # with a brief blip on deploy instead of overlapping instances. Correct
+      # for a docs site, and ~$0.25/mo.
       name: analytics
       mountPath: /var/data
       sizeGB: 1

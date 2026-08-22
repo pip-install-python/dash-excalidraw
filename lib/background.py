@@ -51,6 +51,7 @@ def _say(msg: str) -> None:
     """
     print(f"[boilerplate] background: {msg}", flush=True)
 
+
 _MANAGER = None
 _RESOLVED = False
 

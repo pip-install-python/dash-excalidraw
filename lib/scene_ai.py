@@ -234,6 +234,7 @@ GEMINI_MODELS = [
 
 GEMINI_MAX_TOKENS = 64000
 
+
 def _extract_json_block(text: str) -> str:
     """Pull a single JSON object out of arbitrary AI output.
 
@@ -532,5 +533,3 @@ def _parse_and_normalize(raw: str) -> Dict[str, Any]:
     parsed.setdefault("appState", {"viewBackgroundColor": "#ffffff", "gridSize": None})
     parsed.setdefault("files", {})
     return parsed
-
-

@@ -5,6 +5,7 @@ endpoint: /events
 package: dash_excalidraw
 category: Data flow
 icon: mdi:flash-outline
+lastmod: 2026-08-08
 ---
 
 .. llms_copy::Events

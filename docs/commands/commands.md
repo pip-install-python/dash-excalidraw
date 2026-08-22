@@ -5,6 +5,7 @@ endpoint: /commands
 package: dash_excalidraw
 category: Data flow
 icon: mdi:console-line
+lastmod: 2026-08-08
 ---
 
 .. llms_copy::Command dispatch

@@ -6,6 +6,7 @@ package: dash_excalidraw
 category: Advanced
 icon: mdi:robot-outline
 tier: auth
+lastmod: 2026-08-08
 ---
 
 .. llms_copy::AI agent

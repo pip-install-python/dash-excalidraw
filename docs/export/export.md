@@ -5,6 +5,7 @@ endpoint: /export
 package: dash_excalidraw
 category: Data flow
 icon: mdi:export-variant
+lastmod: 2026-08-08
 ---
 
 .. llms_copy::Export round-trip

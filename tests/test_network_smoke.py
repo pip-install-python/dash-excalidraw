@@ -19,6 +19,8 @@ container run and the post-deploy run exist as well.
 
 from __future__ import annotations
 
+import re
+
 import importlib.util
 import sys
 
@@ -107,10 +109,25 @@ def test_the_battery_reports_a_failure_rather_than_swallowing_it(wired):
 
 
 def test_the_default_base_url_matches_the_container_port(battery):
-    """CI boots the image and runs the battery with no --base-url."""
+    """CI boots the image and runs the battery with no --base-url.
+
+    The CMD no longer hardcodes a port — it binds ``$PORT``, because Render
+    assigns one and a container that ignores it is unreachable. So the
+    invariant moved rather than disappeared: what must agree is the battery's
+    default, ``EXPOSE``, and the ``PORT`` default the image ships. Asserted as
+    three separate facts, since a mismatch in any one of them is a container
+    CI boots and then cannot reach.
+    """
     dockerfile = (REPO_ROOT / "Dockerfile").read_text()
     port = battery.DEFAULT_BASE_URL.rsplit(":", 1)[1]
     assert f"EXPOSE {port}" in dockerfile, (
         f"the battery defaults to port {port}; the image exposes something else"
     )
-    assert f"0.0.0.0:{port}" in dockerfile, "the CMD binds a different port"
+    assert re.search(rf"^\s*PORT={port}\s*$", dockerfile, re.M), (
+        f"the image's PORT default is not {port}, so a `docker run` with no "
+        "-e PORT listens somewhere the battery does not look"
+    )
+    assert '--bind "0.0.0.0:${PORT}"' in dockerfile, (
+        "the CMD must bind $PORT — Render assigns the port at runtime and a "
+        "container listening on a hardcoded one never passes its health check"
+    )

@@ -104,3 +104,9 @@ satellite_traffic.jsonl
 
 # Generated social cards — the real one is uploaded to cdn.2plot.ai by hand.
 build/social-cards/
+
+# Server-side Flask sessions, created at runtime the moment Clerk is
+# configured (dash-clerk-auth's filesystem session store). A runtime
+# artifact of booting the app, never source — it appeared while
+# verifying the [auth] boot guards during the gate-wave pass.
+flask_session/

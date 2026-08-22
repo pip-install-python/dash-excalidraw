@@ -5,6 +5,7 @@ endpoint: /view-modes
 package: dash_excalidraw
 category: Appearance
 icon: mdi:eye-outline
+lastmod: 2026-08-08
 ---
 
 .. llms_copy::View modes

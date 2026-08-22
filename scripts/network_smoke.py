@@ -4,7 +4,7 @@
 One script, two seats, the SAME named checks either way, so a failure in CI
 and a failure against production read identically:
 
-    CI container   python scripts/network_smoke.py --base-url http://localhost:8550
+    CI container   python scripts/network_smoke.py --base-url http://localhost:8050
     Production     python scripts/network_smoke.py --base-url https://boilerplate.2plot.dev
 
 Stdlib-only on purpose: CI runs it from the host against the booted container
@@ -66,8 +66,9 @@ STUB_MARKER = "This page contains interactive content that requires JavaScript"
 # it, which is the half no unit test can reach.
 SITE_H1 = "# dash-excalidraw — Excalidraw drawing canvas for Dash"
 
-# The container port. Matches the Dockerfile's EXPOSE and CMD.
-DEFAULT_BASE_URL = "http://localhost:8550"
+# The container port. Matches the Dockerfile's EXPOSE and its PORT default
+# (the CMD binds $PORT, which Render overrides at runtime).
+DEFAULT_BASE_URL = "http://localhost:8050"
 
 # Owner-only surfaces that must 404 their llms.txt to an anonymous reader.
 # This template ships no hidden pages, so the list is a canary rather than a

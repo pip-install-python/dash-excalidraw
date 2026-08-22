@@ -5,6 +5,7 @@ endpoint: /theming
 package: dash_excalidraw
 category: Appearance
 icon: mdi:palette-outline
+lastmod: 2026-08-08
 ---
 
 .. llms_copy::Theming

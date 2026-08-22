@@ -212,7 +212,6 @@ def test_the_banner_carries_this_app_and_network_identity(client):
 # that discusses the viewer's own markup.
 
 
-
 def test_crawlers_get_markdown_not_the_viewer(client):
     """Googlebot asks for HTML by habit. It still gets the document.
 

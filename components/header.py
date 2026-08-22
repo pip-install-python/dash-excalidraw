@@ -7,17 +7,51 @@ from lib.backend import get_backend_info
 from lib.constants import PRIMARY_COLOR, SITE_SHORT_NAME
 
 
-def create_link(icon, href):
-    """Create an external link icon button"""
+def create_clerk_avatar():
+    """Clerk avatar / sign-in control, sat beside the colour-scheme toggle.
+
+    Returns None when Clerk is not configured, so local development and any
+    deploy without the keys renders the header exactly as before rather than
+    erroring on a missing component. `lib/auth.py` registers Clerk with
+    `headless=True`, meaning the package injects NO UI of its own — without
+    this widget there is no way to sign in even though Clerk initialises.
+    The package renders `#clerk-login-button` inside it; since
+    dash-clerk-auth 0.9.2 that button's own handler is satellite-safe, so it
+    needs nothing from us.
+    """
+    from lib.auth import clerk_enabled
+
+    if not clerk_enabled():
+        return None
+    from dash_clerk_auth import create_clerk_menu
+
+    return create_clerk_menu(show_dropdown=True, dropdown_align="right")
+
+
+def create_link(icon, href, label):
+    """Create an external link icon button.
+
+    ``label`` is REQUIRED: an icon-only link has no accessible name, so
+    screen readers announce it as "link" and AI agents can't tell what it
+    does — the exact Lighthouse/Agentic-Browsing failure measured on the
+    fleet 2026-08-21. The label lands on both the anchor and the button.
+
+    NEVER add ``title=`` beside it: DMC 2.8's ActionIcon/Anchor accept
+    ``aria-*`` wildcards but REJECT ``title``, and the TypeError is raised
+    during app construction — the whole site fails to boot rather than
+    rendering a wrong tooltip. Use ``dmc.Tooltip`` for hover text.
+    """
     return dmc.Anchor(
         dmc.ActionIcon(
             DashIconify(icon=icon, width=22),
             variant="subtle",
             size="lg",
             color="gray",
+            **{"aria-label": label},
         ),
         href=href,
         target="_blank",
+        **{"aria-label": label},
     )
 
 
@@ -87,6 +121,7 @@ def create_header(data):
                             size="lg",
                             color="gray",
                             hiddenFrom="md",
+                            **{"aria-label": "Open navigation menu"},
                         ),
                         # Desktop-only burger: collapses/expands the AppShell navbar
                         # on md-xl screens. Default opened=True so users see the X
@@ -131,7 +166,8 @@ def create_header(data):
                     gap="md",
                 ),
 
-                # Right section: Backend badge + OpenAPI (fastapi only) + Search + GitHub + Theme toggle
+                # Right section: Backend badge + OpenAPI (fastapi only) +
+                # Search + GitHub + Theme toggle + Clerk avatar (when on)
                 dmc.Group(
                     [
                         dmc.Box(create_backend_badge(), visibleFrom="sm"),
@@ -140,6 +176,7 @@ def create_header(data):
                         create_link(
                             "radix-icons:github-logo",
                             "https://github.com/pip-install-python/dash-excalidraw",
+                            "View the dash-excalidraw source on GitHub",
                         ),
                         dmc.ActionIcon(
                             [
@@ -158,7 +195,9 @@ def create_header(data):
                             color="yellow",
                             id="color-scheme-toggle",
                             size="lg",
+                            **{"aria-label": "Toggle light / dark color scheme"},
                         ),
+                        create_clerk_avatar(),
                     ],
                     gap="sm",
                 ),

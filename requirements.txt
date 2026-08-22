@@ -1,6 +1,6 @@
 # Core scientific stack
 pandas>=1.2.3
-plotly>=5.0.0
+plotly>=6.9.0
 requests>=2.27.1
 retrying
 setuptools
@@ -40,7 +40,13 @@ importlib-metadata
 # a single deploy setting can invalidate.
 dash~=4.4.1
 dash-iconify>=0.1.2
-dash-mantine-components>=2.7.0
+# 2.8.0 is REQUIRED, not preferred: on 2.7.0 the network-standard
+# mobile drawer (components/navbar.create_navbar_drawer) renders as a
+# floating card from identical props. 2.8's ActionIcon/Anchor also
+# accept `aria-*` wildcards, which the icon-only controls need — and
+# REJECT `title=` with a TypeError raised during app construction, so
+# never pass it to a DMC component (see components/header.py).
+dash-mantine-components>=2.8.0
 dash-ag-grid
 
 # Default backend (Flask is bundled but pinned here for clarity)
@@ -103,10 +109,31 @@ python-dotenv>=1.0.0
 # tests/test_llms_routes.py asserts that split, and scripts/network_smoke.py
 # asserts it against a live host, so a stale artifact fails a battery by name
 # rather than serving quietly.
-dash-improve-my-llms[flask]>=2.3.4
-# dash-improve-my-llms[fastapi]>=2.3.4   # Dash 4.4+ FastAPI backend
-# dash-improve-my-llms[quart]>=2.3.4     # Dash 4.4+ Quart backend
-# dash-improve-my-llms[all]>=2.3.4       # all three
+# 2.5.1 is the Tier-B SEO standard: configure_seo (icons, social card,
+# publisher/sameAs), crawler <title> carrying the site name, per-page
+# title/image_url/schema_type reaching the crawler document, /favicon.ico
+# answered with a redirect instead of the app shell, and a prerender that
+# no longer clobbers the browser's per-page <title>.
+#
+# 2.6.0 makes identity self-maintaining and the sitemap honest: icon
+# autodiscovery from the assets folder (explicit configure_seo(icons=)
+# still wins — this app declares, and tests/test_seo_icons.py pins that
+# discovery agrees with the declaration), sitemap <lastmod> emitted
+# verbatim from register_page_metadata(lastmod=) and OMITTED when unset
+# (the invented daily dates are gone — Google discards a sitemap of lies
+# wholesale), JSON-LD publisher.logo, and the llms.txt viewer banner
+# de-dup. Floor, not pin: the fleet upgrades through this line.
+#
+# Safe to raise here BEFORE anything else: 2.6's icon discovery finds
+# whatever `favicon.*`/`apple-touch-icon.png` sits in assets/, and this
+# host's eight icon files were regenerated from its own
+# assets/excalidraw-mark.png (scripts/make_brand_assets.py) — none of them
+# is template art. The fleet's pixels-BEFORE-floor ordering rule is
+# therefore already satisfied on this repo.
+dash-improve-my-llms[flask]>=2.6.0
+# dash-improve-my-llms[fastapi]>=2.6.0   # Dash 4.4+ FastAPI backend
+# dash-improve-my-llms[quart]>=2.6.0     # Dash 4.4+ Quart backend
+# dash-improve-my-llms[all]>=2.6.0       # all three
 
 # Background callbacks — /ai-agent's model call
 #
@@ -160,20 +187,61 @@ gunicorn>=23.0.0
 # these two lines and redeploy; the auth tier fails CLOSED without Clerk, so
 # nothing is left exposed by doing so.
 #
-# 1.0.0, NOT the 0.9.1 the boilerplate still vendors. The network floor is
-# 0.9.2: 0.9.0 ships a dead avatar on satellites, and 0.9.1 still calls the
-# Clerk MODAL from the Sign In button, which a satellite domain rejects with
-# "This operation is not allowed on a satellite domain". 0.9.2 navigates to
-# `satellite_sign_in_redirect` instead. 1.0.0 is the first stable release and
-# what the live leaflet satellite already runs.
+# 1.0.5 is the fleet line, live on all four core hosts since the network
+# certification's GO (2026-08-21). The releases this host skips past, and
+# what each one closes:
 #
-# PYTHON FLOOR: 1.0.0 requires >=3.10 (clerk-backend-api 5.x publishes no 3.9
-# build). That binds the DOCS SITE only — the Dockerfile is 3.12. The
-# dash_excalidraw PACKAGE keeps requires-python >=3.9, and ci.yml's
-# package-python-range job proves 3.9 installs and imports the wheel with
-# nothing but Dash present.
+#   0.9.2  satellite Sign In stops calling the Clerk MODAL (a satellite
+#          domain rejects it with "This operation is not allowed on a
+#          satellite domain") and navigates to the primary instead.
+#   1.0.1  widened its own clerk-backend-api cap to `<8`, which is what
+#          lets an application assert the security floors below rather
+#          than merely permit them.
+#   1.0.3  Sign Out finally revokes the SERVER session on the click paths.
+#          Before it, `Clerk.signOut()` ran client-side only and the signed
+#          `__dca_identity` cookie kept serving gated pages for up to seven
+#          days. Also: live cross-tab transition, inline SVG default avatar.
+#   1.0.4  the first release whose FastAPI auth endpoints are CALLABLE
+#          (1.0.3 registered them with an un-annotated request param, which
+#          FastAPI reads as a required query field — 422 on every POST,
+#          swallowed client-side; inert on Flask, fatal on a fastapi host).
+#          Plus the GHOST-COOKIE fresh-load reconciliation.
+#   1.0.5  the return-trip stale gate, on the funnel's happiest path: sign
+#          in from a satellite, land back on the auth-gated page you
+#          started on, and the first server render happens BEFORE
+#          `__dca_identity` is minted, so the gate card persists until a
+#          manual refresh. 1.0.5 detects ClerkJS-signed-in against a
+#          server-rendered-signed-out page, syncs the session and reloads
+#          once, behind a sessionStorage no-loop marker now shared by BOTH
+#          reconciliations.
+#
+# Because this host takes 1.0.5 directly it needs NO app-side signout shim:
+# lib/auth.py's `_install_signout_delegation` is the template's idempotent
+# duplicate, retiring fleet-wide one clean release cycle after the GO.
+#
+# PROVENANCE — the dist/ tarball IS the release; there is no PyPI:
+#   sha256  a2f9062e15a69fc79deeaf76fcf1380907a961978db558b2aa227572cb2b74f3
+# GENERAL RULE, twice-proven (1.0.4's 22117b20…, 1.0.5's first build):
+# early builds go stale on sdist-shipped doc edits and are NOT
+# distinguishable by name, size or date — ONLY the recorded sha admits a
+# tarball into this file. Vendor from Dash-Clerk-Auth-Hook's dist/ and
+# verify before every copy. Never build from a branch.
+#
+# PYTHON FLOOR: >=3.10 (clerk-backend-api publishes no 3.9 build). That
+# binds the DOCS SITE only — the Dockerfile is 3.12. The dash_excalidraw
+# PACKAGE keeps requires-python >=3.9, and ci.yml's package-python-range
+# job proves 3.9 installs and imports the wheel with nothing but Dash
+# present.
 #
 # Not on PyPI — vendored the same way across every 2plot satellite.
 #   Used by: lib/auth.py, the `auth` page tier
-./vendor/dash_clerk_auth-1.0.0.tar.gz
-clerk-backend-api>=5.0.0,<6
+./vendor/dash_clerk_auth-1.0.5.tar.gz
+# SECURITY floors, the fleet baseline — not a preference. clerk-backend-api
+# 5.x declares cryptography>=45.0.0,<47.0.0, holding cryptography on 46.0.7:
+# below the fixes for GHSA-537c-gmf6-5ccf (48.0.1), PYSEC-2026-3553 and
+# PYSEC-2026-3554 (49.0.0), and PYSEC-2026-3552 (50.0.0). Pinning
+# cryptography alone returns ResolutionImpossible against that cap; SDK
+# 7.0.0 allows <51.0.0, unlocked by dash-clerk-auth 1.0.1 widening its own
+# declaration to `<8`.
+clerk-backend-api>=7.0.0,<8
+cryptography>=50.0.0

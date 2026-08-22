@@ -26,6 +26,7 @@ REQUIRED_PATHS = {
     "/collaboration",
     "/file-uploads",
     "/ai-agent",
+    "/benchmark",
 }
 
 

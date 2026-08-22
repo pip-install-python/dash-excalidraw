@@ -55,11 +55,41 @@ from dash_improve_my_llms import (
 # The version requirements.txt pins. Checked at startup — see the floors block
 # below for why this is worth a line of output on every boot.
 #
-# 2.3.4 is the network standard (2plot.ai and 2plot.dev both run it). Below it,
-# `resolve_site_title` does not exist: the /llms.txt H1 and the llms-viewer
-# brand chip fall back to `app.title` unconditionally, and a nav label or
-# Dash's default "Dash" becomes this site's published identity.
-LLMS_PKG_FLOOR = (2, 3, 4)
+# 2.3.4 was the old network standard: below it `resolve_site_title` does not
+# exist and a nav label becomes this site's published identity.
+#
+# 2.5.1 raised it to the Tier-B SEO standard: `configure_seo` (icons, social
+# card, publisher/sameAs), the crawler <title> carrying the site name,
+# per-page `title`/`image_url`/`schema_type` actually reaching the crawler
+# document, /favicon.ico answered with a redirect instead of the app shell,
+# and a prerender that no longer clobbers the browser's per-page <title>.
+# 2.6.0 raises it to the honesty standard: sitemap <lastmod> is emitted
+# verbatim from `register_page_metadata(lastmod=)` and OMITTED when unset.
+# The floor is load-bearing for HONESTY, not crash avoidance: older packages
+# take `lastmod=` into **kwargs and silently ignore it, so below the floor
+# every date this repo stamps is swallowed and the sitemap goes back to
+# swearing everything changed at build time. Also in 2.6.0: icon
+# autodiscovery (this app still declares explicitly; the two must agree —
+# tests/test_seo_icons.py), JSON-LD publisher.logo, and the viewer banner
+# de-dup.
+# `configure_seo` is deliberately imported AFTER this floor fires (see the
+# floors block) so a stale environment gets the floor's diagnosis instead of
+# a bare ImportError.
+LLMS_PKG_FLOOR = (2, 6, 0)
+
+# THE FORK POINT — claim this app's network identity before any hub-facing
+# module imports. Every module that names this app (satellite_reporter,
+# ad_client, hub_client, bulletin) carries its own fallback default, and
+# after a template sync those defaults can DISAGREE: the byte-copied
+# reporter says "boilerplate" while this fork's other modules say
+# "excalidraw", so an unset SATELLITE_APP_KEY would file THIS host's
+# traffic under the TEMPLATE's hub row (found live on pannellum,
+# 2026-08-21 — the same class as the flows-reported-as-boilerplate
+# contamination in the hub's history). setdefault: a real env value (the
+# Render dashboard, .env) always wins; this line only closes the unset gap.
+# The reporter stays byte-identical to the template's — that is the
+# acceptance check — which is exactly why the claim lives here.
+os.environ.setdefault("SATELLITE_APP_KEY", "excalidraw")
 
 # Analytics tracking
 from lib.analytics_tracker import tracker
@@ -68,6 +98,12 @@ from lib.analytics_tracker import tracker
 from lib.constants import (
     APP_TITLE,
     BASE_URL,
+    OG_IMAGE_ALT,
+    OG_IMAGE_HEIGHT,
+    OG_IMAGE_URL,
+    OG_IMAGE_WIDTH,
+    PUBLISHER,
+    SAME_AS,
     SITE_BRAND,
     SITE_DESCRIPTION,
     require_owned_base_url,
@@ -134,11 +170,30 @@ if LLMS_PKG_FLOOR > _version(LLMS_PKG_VERSION):
     _dependency_floor(
         f"dash-improve-my-llms {LLMS_PKG_VERSION} is below the "
         f"{'.'.join(str(n) for n in LLMS_PKG_FLOOR)} floor in requirements.txt. "
-        "Below 2.3.0 the rendered llms.txt viewer, wordmark and navigation "
-        "block do not exist at all; below 2.3.4 this site's published identity "
-        "silently degrades to whatever `app.title` happens to be.",
+        "Below 2.6.0 the sitemap goes back to lying: `lastmod=` is accepted "
+        "into **kwargs and SILENTLY IGNORED, so every date this repo stamped "
+        "is swallowed and <lastmod> reverts to invented build dates. Below "
+        "2.5.1 the Tier-B SEO standard additionally unwinds: `configure_seo` "
+        "does not exist, the crawler <title> drops back to the bare page name, "
+        "per-page title/image_url/schema_type never reach the crawler "
+        "document, and /favicon.ico serves the app shell instead of an icon. "
+        "(2.3.x additionally loses resolve_site_title and the tiered corpus "
+        "documents.)",
         fatal=True,
     )
+
+# Imported after the floor on purpose: on a pre-2.5.0 package this name does
+# not exist, and the floor's diagnosis above beats a bare ImportError. The
+# fallback exists only for ALLOW_STALE_DEPS=1 — the floor is fatal otherwise.
+try:
+    from dash_improve_my_llms import configure_seo  # noqa: E402
+except ImportError:  # pragma: no cover — ALLOW_STALE_DEPS with a pre-2.5.0 package
+
+    def configure_seo(**_kwargs) -> None:
+        print(
+            "[boilerplate] WARNING: configure_seo unavailable (pre-2.5.0 "
+            "package) — crawler identity tags and root icons not emitted."
+        )
 
 if DASH_VERSION < (4, 4):
     # Fatal only on FastAPI, where it is not a degradation but an outage:
@@ -300,6 +355,46 @@ register_page_metadata(
     path="/",
     name=SITE_BRAND,
     description=SITE_DESCRIPTION,
+    # The home page of a component library is a SoftwareApplication, not a
+    # generic WebPage — the one structured-data type that exactly describes
+    # it. Docs pages default to TechArticle in pages/markdown.py.
+    schema_type="SoftwareApplication",
+)
+
+# ============================================================================
+# Site identity for the CRAWLER document (dash-improve-my-llms 2.5.0).
+# Until 2.5.0 the generated crawler HTML carried the page's content signals
+# and none of its identity: browsers got the icon links, og:image and a
+# twitter card from templates/index.html while Googlebot got zero of any of
+# them, on every host in the network — so search showed the generic globe.
+# One declaration covers every crawler surface, and it also claims
+# /favicon.ico (Google's fallback), which Dash's page catch-all was
+# answering with the app shell. Content may differ between the crawler
+# document and the browser document; identity may not.
+# ============================================================================
+configure_seo(
+    icons=[
+        # Same paths templates/index.html links, so the two heads agree.
+        # The .ico href is the assets/favicon/ copy (byte-identical to the
+        # root one index.html links) so this list is SET-equal to what
+        # 2.6.0's autodiscovery finds — tests/test_seo_icons.py pins that
+        # agreement, which is the proof discovery alone would be enough
+        # here now that this host's pixels are its own.
+        "/assets/favicon/favicon.ico",
+        {"href": "/assets/favicon/favicon-32x32.png", "sizes": "32x32"},
+        {"href": "/assets/favicon/favicon-16x16.png", "sizes": "16x16"},
+        {"href": "/assets/favicon/favicon-96x96.png", "sizes": "96x96"},
+        {"href": "/assets/favicon/android-chrome-192x192.png", "sizes": "192x192"},
+        {"href": "/assets/favicon/android-chrome-512x512.png", "sizes": "512x512"},
+        {"href": "/assets/favicon/apple-touch-icon.png",
+         "rel": "apple-touch-icon", "sizes": "180x180"},
+    ],
+    social_image=OG_IMAGE_URL,
+    social_image_alt=OG_IMAGE_ALT,
+    social_image_width=OG_IMAGE_WIDTH,
+    social_image_height=OG_IMAGE_HEIGHT,
+    publisher=PUBLISHER,
+    same_as=SAME_AS,
 )
 
 # Internal pages — excluded from /sitemap.xml, blocked in /robots.txt,
@@ -415,8 +510,36 @@ print(
 # ============================================================================
 
 from lib import access as _access  # noqa: E402
+from lib import page_tiers as _page_tiers  # noqa: E402
+from lib import page_visibility as _page_visibility  # noqa: E402
 
-ACCESS_ENABLED = _access.configure()
+# Tiered corpus documents (dash-improve-my-llms >= 2.4.0). Pseudo-paths:
+# they never enter dash.page_registry, so they cannot leak into listings —
+# registering them here lets this satellite tier its compact briefing and
+# full corpus via env (LLMS_SMALL_TIER / LLMS_FULL_TIER), and the hub can
+# tighten either network-wide through its page-tier ceilings with no
+# redeploy here. The explicit `or "public"` matters: these registered under
+# the PAGE_DEFAULT_TIER fallback before, which meant flipping that env to
+# gate the *interactive* site would silently gate the corpus documents too.
+# Their tier is now always a deliberate setting, never an ambient default.
+_page_tiers.register("/llms-small.txt",
+                     os.environ.get("LLMS_SMALL_TIER") or "public")
+_page_tiers.register("/llms-full.txt",
+                     os.environ.get("LLMS_FULL_TIER") or "public")
+
+# The home page registers via pages/home.py, not pages/markdown.py, so no
+# frontmatter ever declares its tier — under PAGE_DEFAULT_TIER=auth it would
+# silently inherit the gate. The funnel's front door stays public, always.
+_page_tiers.register("/", "public")
+
+# force= when either gate env is present: with every tier still public the
+# auto-detect would skip the wiring, but a host that flips by env needs the
+# verdict plumbing (and the prerender's use of it) live during the dark
+# launch, not on the flip.
+ACCESS_ENABLED = _access.configure(
+    force=bool(os.environ.get("PAGE_DEFAULT_TIER")
+               or os.environ.get("LLMS_PUBLIC_DEFAULT"))
+)
 
 # Wire up the package: /llms.txt, /<page>/llms.txt, /robots.txt, /sitemap.xml,
 # bot-detection middleware, and (on Dash 4.3+) MCP resource registration.
@@ -433,6 +556,28 @@ add_llms_routes(app, LLMSConfig(warn_missing_llms_doc=True))
 app.layout = create_appshell(dash.page_registry.values())
 
 server = app.server
+
+# ============================================================================
+# The person→agent handoff: /api/agent-key turns the browser's Clerk session
+# into a portable ?key= for copied llms.txt URLs (lib/agent_key.py). 204 for
+# everyone until Clerk and the hub are configured — safe to mount always.
+# ============================================================================
+
+from lib.agent_key import register_agent_key_route  # noqa: E402
+
+register_agent_key_route(app, BACKEND)
+
+_non_public = sum(1 for t in _page_tiers.registered().values() if t != "public")
+print(
+    f"[boilerplate/excalidraw] interactive gate: default tier "
+    f"'{os.environ.get('PAGE_DEFAULT_TIER') or 'public'}', "
+    f"{_non_public} non-public page(s), machine surfaces "
+    f"{'GATED' if not _page_tiers.get_llms_public('/__probe__') else 'open'} "
+    f"by default (LLMS_PUBLIC_DEFAULT), access wiring "
+    f"{'ON' if ACCESS_ENABLED else 'off'}, control board at "
+    f"/admin/control-board ({_page_visibility.override_count()} live "
+    f"override(s))."
+)
 
 # ============================================================================
 # Analytics Tracking (FastAPI) — added LAST on purpose.
