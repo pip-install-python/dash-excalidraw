@@ -17,29 +17,78 @@ the same guard.
 from __future__ import annotations
 
 import importlib.metadata as md
+import re
 
 import pytest
 
+from conftest import REPO_ROOT
+
 import dash_excalidraw as dex
+
+
+def _declared_base_dependencies() -> set[str]:
+    """The wheel's runtime dependency NAMES, read from pyproject.toml.
+
+    Read from the source of truth rather than from installed metadata,
+    deliberately. The docs-site suite runs in an environment where
+    `dash-excalidraw` itself is NOT pip-installed — CI's test job installs
+    `-r requirements.txt` and nothing else, and the package is importable
+    only because the repo root is the working directory. So
+    `importlib.metadata.requires()` raises PackageNotFoundError there,
+    which is exactly how the first version of this test passed on a
+    developer's machine (editable install present) and failed all four
+    matrix legs. pyproject.toml is always in the tree, and it is what the
+    wheel is built FROM.
+
+    `[project.optional-dependencies]` is excluded: a plain
+    `pip install dash-excalidraw` installs none of the four extras.
+    """
+    text = (REPO_ROOT / "pyproject.toml").read_text()
+    block = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    assert block, "pyproject.toml declares no [project] dependencies array"
+    return {
+        re.split(r"[<>=!~\[;\s]", spec.strip().strip('",\''))[0].lower()
+        for spec in block.group(1).split(",")
+        if spec.strip().strip('",\'')
+    }
 
 
 def test_the_package_depends_on_dash_and_nothing_else():
     """`pip install dash-excalidraw` must not drag in the docs site.
 
-    BASE requirements only. `md.requires()` also returns every optional
-    dependency with its `extra == "..."` marker attached — anthropic,
-    pytest, flask-socketio — and a plain install pulls none of them.
+    Every library the site needs — Mantine, markdown2dash, the Clerk
+    tarball, the AI SDKs — belongs in requirements.txt. A single one of them
+    reaching pyproject.toml's `dependencies` array makes every consumer of
+    the component install a documentation stack.
     """
-    reqs = md.requires("dash-excalidraw") or []
-    base = [r for r in reqs if "extra ==" not in r]
-    names = {r.split(";")[0].split("[")[0].strip().lower()
-             .split(">")[0].split("<")[0].split("=")[0].strip()
-             for r in base}
-    assert names == {"dash"}, (
-        f"the wheel gained a runtime dependency: {names}. The docs site's "
+    assert _declared_base_dependencies() == {"dash"}, (
+        "the wheel gained a runtime dependency. The docs site's "
         "dependencies belong in requirements.txt, never in pyproject.toml."
     )
-    assert base, "the wheel declares no runtime dependency at all"
+
+
+def test_installed_metadata_agrees_with_pyproject():
+    """When the package IS installed, the built metadata must match source.
+
+    Skipped in the environment CI's test job builds — see
+    `_declared_base_dependencies` — so this is the half that only runs where
+    a build has actually happened, and it catches a wheel whose recorded
+    dependencies drifted from the file they were generated from.
+    """
+    try:
+        reqs = md.requires("dash-excalidraw") or []
+    except md.PackageNotFoundError:
+        pytest.skip("dash-excalidraw is not installed in this environment")
+
+    # BASE requirements only: md.requires() also returns every optional
+    # dependency with its `extra == "..."` marker attached, and a plain
+    # install pulls none of them.
+    base = [r for r in reqs if "extra ==" not in r]
+    names = {re.split(r"[<>=!~\[;\s]", r.strip())[0].lower() for r in base}
+    assert names == _declared_base_dependencies(), (
+        f"installed metadata says {names}, pyproject.toml says "
+        f"{_declared_base_dependencies()}"
+    )
 
 
 def test_the_public_surface_is_the_component_and_the_helpers():

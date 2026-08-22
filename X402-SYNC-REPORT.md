@@ -404,3 +404,42 @@ on a laptop rather than in twelve minutes on a runner.
 
   Suite: 336 passed (was 331). flake8 clean. smoke_test 48/48.
 
+## gate-wave — round 4: my own test broke the suite
+
+date: 2026-08-21
+run: CD #3 on main @ 630246a — the wheel half went fully green (Build +
+  verify, and all five `Package · Python 3.9–3.13`), and all four pytest
+  legs went RED for the first time.
+
+Cause: the test I added in round 3 to stop that CI step regressing.
+`test_the_package_depends_on_dash_and_nothing_else` called
+`importlib.metadata.requires("dash-excalidraw")`, which needs the
+distribution to be INSTALLED. It is installed in this developer venv (an
+editable install left from the original component work) and it is NOT
+installed in CI's test job, which does `pip install -r requirements.txt`
+and nothing else — the package is importable there only because the repo
+root is the working directory. So the call raised PackageNotFoundError on
+every leg.
+
+The irony is the point: a test written to stop a CI step regressing broke
+CI in a way the local run could not show, for the same reason the step it
+guards had failed twice — an assumption about the environment that happened
+to hold on one machine.
+
+Fixed by reading `pyproject.toml` instead. It is always in the tree, needs
+no install, and is what the wheel is BUILT from, so it is a strictly better
+source than installed metadata. The metadata check survives as a separate
+test that skips when the distribution is absent and, where a build has
+happened, asserts the built metadata still agrees with the file it came
+from.
+
+  Suite: 337 passed. flake8 clean.
+
+### Standing state of the CI matrix
+
+  green: lint, all four pytest legs, all six docs-compat legs, docker
+    build-boot-battery, Build + verify the wheel, all five Package legs.
+  red by design: pip-audit (`continue-on-error: true` — the run is not
+    blocked; the check renders red, which is the fleet's shape).
+  gated: deploy + verify, which run once CI is green.
+
