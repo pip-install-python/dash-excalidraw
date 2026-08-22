@@ -16,6 +16,17 @@ the gate plumbing goes live and changes nothing. Everything here is the site
 under `run.py`; the `dash_excalidraw` package is untouched apart from one
 metadata fix.
 
+#### Fixed — mobile
+
+- **The header wordmark overflowed the row on phones.** `dash-excalidraw` is
+  a long mark to sit beside a burger, a 36px logo, a search control and the
+  theme toggle. It is now `visibleFrom="xs"` — hidden below 576px (36em),
+  which covers every phone in portrait. Measured at the boundary: hidden at
+  360/414/575px, shown from 576px. `visibleFrom` renders a CSS class rather
+  than dropping the component, so the element stays in the DOM: the site's
+  name is still in the accessibility tree via the logo's `alt`, and
+  `assets/text_animation.js` still finds `#dash-docs-title` to type into.
+
 #### Fixed — the first CI run (round 2)
 
 The first run of the rewritten workflows lost nine checks. Every one was in

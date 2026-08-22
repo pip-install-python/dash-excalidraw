@@ -155,6 +155,23 @@ def create_header(data):
                                         fw=700,
                                         c=PRIMARY_COLOR,
                                         id="dash-docs-title",
+                                        # Hidden below 36em (576px) — every
+                                        # phone in portrait. "dash-excalidraw"
+                                        # is a long wordmark next to a burger,
+                                        # a logo, a search control and the
+                                        # theme toggle, and on an xs viewport
+                                        # it was what pushed the row over.
+                                        #
+                                        # visibleFrom renders a CSS class
+                                        # (`mantine-visible-from-xs`), so the
+                                        # element stays in the DOM: the mark
+                                        # is still in the accessibility tree
+                                        # via the logo's alt text, and
+                                        # assets/text_animation.js keeps
+                                        # finding #dash-docs-title to type
+                                        # into. Do not swap this for removing
+                                        # the component on small screens.
+                                        visibleFrom="xs",
                                     ),
                                 ],
                                 gap="sm",

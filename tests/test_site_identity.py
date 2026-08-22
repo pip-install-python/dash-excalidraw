@@ -191,6 +191,58 @@ def test_home_markdown_is_not_a_stale_copy_of_the_old_opening():
 
 
 # ---------------------------------------------------------------------------
+# The header wordmark
+# ---------------------------------------------------------------------------
+
+
+def _header_title_node(app_module):
+    """The `#dash-docs-title` node out of the serialised app layout."""
+    import json
+
+    from dash._utils import to_json
+
+    def walk(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("props"), dict) and \
+                    node["props"].get("id") == "dash-docs-title":
+                yield node
+            for value in node.values():
+                yield from walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from walk(value)
+
+    hits = list(walk(json.loads(to_json(app_module.app.layout))))
+    assert len(hits) == 1, f"expected exactly one #dash-docs-title, got {len(hits)}"
+    return hits[0]
+
+
+def test_the_header_wordmark_is_this_site_read_from_the_constant(app_module):
+    node = _header_title_node(app_module)
+    assert node["props"]["children"] == SITE_SHORT_NAME, (
+        "the header advertises a name that is not this site's — the template "
+        "shipped 'Dash Docs' hard-coded, which is how a fork ends up "
+        "advertising its parent"
+    )
+
+
+def test_the_header_wordmark_is_hidden_on_phone_widths(app_module):
+    """`dash-excalidraw` is a long wordmark for an xs viewport.
+
+    Beside it sit a burger, a 36px logo, a search control and the theme
+    toggle, and on a phone in portrait that row overflowed. `visibleFrom`
+    renders a CSS class rather than removing the component, which is what
+    keeps `assets/text_animation.js` able to find `#dash-docs-title` to type
+    into — so this pins the mechanism, not just the outcome.
+    """
+    node = _header_title_node(app_module)
+    assert node["props"].get("visibleFrom") == "xs", (
+        "the header wordmark lost its responsive guard — it will overflow "
+        "the header row below 576px again"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Version claims are DERIVED, never written. "Powered by dash-improve-my-llms
 # 2.3.4" served on /llms.txt for months on the reference host while a newer
 # package was actually running the site — the most-read surface in the
