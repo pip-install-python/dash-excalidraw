@@ -226,6 +226,123 @@ def test_the_header_wordmark_is_this_site_read_from_the_constant(app_module):
     )
 
 
+def _home_anchor(app_module):
+    """The BRANDED home link in the header (logo + wordmark), not the nav's."""
+    import json
+
+    from dash._utils import to_json
+
+    def walk(node):
+        if isinstance(node, dict):
+            yield node
+            for value in node.values():
+                yield from walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from walk(value)
+
+    tree = json.loads(to_json(app_module.app.layout))
+    hits = [n for n in walk(tree)
+            if n.get("type") == "Anchor"
+            and (n.get("props") or {}).get("href") == "/"
+            and any(m.get("type") == "Img" for m in walk(n))]
+    assert len(hits) == 1, f"expected one branded home anchor, got {len(hits)}"
+    return hits[0]
+
+
+def test_the_home_link_has_an_accessible_name_on_phones(app_module):
+    """Below 576px the wordmark is `display: none`, so it names nothing.
+
+    This is the correction to a wrong claim: `visibleFrom` keeps the node in
+    the DOM (which is why the typing animation still finds it), but the
+    generated CSS is a `display: none` media query — and a display:none
+    subtree is removed from the accessibility tree entirely. So under the
+    breakpoint the wordmark contributes no text, and with a decorative logo
+    beside it the home link would have NO accessible name at all: a screen
+    reader announces "link", and nothing says where it goes.
+
+    The name therefore lives on the anchor, permanently, at every width.
+    """
+    props = _home_anchor(app_module)["props"]
+    label = (props.get("aria-label") or "").strip()
+    assert label, (
+        "the branded home link has no aria-label — under 576px it has no "
+        "accessible name at all, because the wordmark is display:none there"
+    )
+    assert SITE_SHORT_NAME in label, f"the home link is named {label!r}, not this site"
+
+
+def test_the_header_logo_is_decorative(app_module):
+    """`alt=""`, so it does not compete with the anchor's own name.
+
+    The logo sits INSIDE the labelled link. Giving it alt text too would make
+    a screen reader announce the destination twice, and the alt would fight
+    the aria-label over which one is the accessible name.
+    """
+    anchor = _home_anchor(app_module)
+
+    def walk(node):
+        if isinstance(node, dict):
+            yield node
+            for value in node.values():
+                yield from walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from walk(value)
+
+    imgs = [n for n in walk(anchor) if n.get("type") == "Img"]
+    assert imgs, "the branded home link lost its logo"
+    for img in imgs:
+        assert img["props"].get("alt") == "", (
+            'the header logo must be decorative (alt="") — it sits inside a '
+            "link that already carries its own aria-label"
+        )
+
+
+def test_the_meta_description_fits_a_search_snippet():
+    """~155 chars. Longer is not merely clipped — it is REPLACED.
+
+    Google truncates around 155-160 characters and, for a description it
+    judges too long or not representative, rewrites the snippet from page
+    text instead. So an over-long description forfeits the snippet rather
+    than shortening it. Found at 270 chars by an outside SEO audit.
+    """
+    assert len(SITE_DESCRIPTION) <= 160, (
+        f"SITE_DESCRIPTION is {len(SITE_DESCRIPTION)} chars; Google will "
+        "truncate and likely rewrite the snippet. Keep it at or under 160."
+    )
+    assert len(SITE_DESCRIPTION) >= 90, (
+        f"SITE_DESCRIPTION is only {len(SITE_DESCRIPTION)} chars — too thin "
+        "to earn the snippet at all."
+    )
+
+
+def test_the_keywords_describe_this_component_not_the_template():
+    """The tag shipped naming a documentation boilerplate, never Excalidraw.
+
+    Google has ignored `keywords` since 2009, but Bing and several AI crawlers
+    still read it — and whatever reads it was being told this site is about
+    Dash Mantine Components and markdown docs. The failure worth guarding is
+    not "the tag is absent", it is "the tag describes the wrong product".
+    """
+    import re
+
+    html = (REPO_ROOT / "templates" / "index.html").read_text()
+    match = re.search(r'<meta name="keywords" content="([^"]*)"', html)
+    assert match, "the keywords meta tag is gone"
+    terms = {t.strip().lower() for t in match.group(1).split(",")}
+    for required in ("excalidraw", "whiteboard"):
+        assert any(required in t for t in terms), (
+            f"the keywords never mention {required!r}: {sorted(terms)}"
+        )
+    for template_leftover in ("dash mantine components", "markdown docs",
+                              "technical documentation", "developer tools"):
+        assert template_leftover not in terms, (
+            f"the template's keyword {template_leftover!r} is still here — "
+            "this tag should describe the component, not the docs framework"
+        )
+
+
 def test_the_header_wordmark_is_hidden_on_phone_widths(app_module):
     """`dash-excalidraw` is a long wordmark for an xs viewport.
 

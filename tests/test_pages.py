@@ -103,6 +103,43 @@ def test_home_page_links_out_to_other_pages(client):
     assert body.count("<a href=") >= 5, "home page prose has almost no outbound links"
 
 
+def test_prerender_rides_the_generic_lane_not_a_ua_gate(client):
+    """The universal prerender must be in the initial HTML for a PLAIN
+    client — no crawler user-agent. An outside SEO audit (2026-08-22) read
+    several hosts as serving "Loading... and nothing else" to browsers; the
+    prose was there all along, but every other test in this file fetches with
+    CRAWLER_UA (which exercises the separate bot-document path), so a
+    regression that UA-gated the universal lane would have been invisible to
+    the suite. This test is the generic-lane pin.
+
+    Since the 2.6.1 floor the block must also be VISIBLE: dimll <= 2.6.0
+    shipped the div with a literal `hidden` attribute, so every
+    visibility-respecting text extractor (and arguably crawler
+    content-weighting) saw only "Loading..." — present and invisible, the
+    worst of both. 2.6.1 serves it visible and hides it via a synchronous
+    inline script that only JS browsers execute (React's mount then wipes the
+    pair, so nothing changes for humans). The div shape below is the
+    regression pin for that fix, from the app's side.
+    """
+    for path in ("/", "/basic"):
+        html = client.get(path).text  # default UA — the point of the test
+        div = re.search(r'<div id="dimll-prerender"[^>]*>', html)
+        assert div, (
+            f"{path}: no prerender block for a generic client — the "
+            "universal lane is gated or off"
+        )
+        assert "hidden" not in div.group(0), (
+            f"{path}: the prerender div carries `hidden` again — "
+            "visibility-respecting consumers are back to reading "
+            "'Loading...'; the dimll floor is >=2.6.1 for exactly this"
+        )
+        assert 'data-dimll-prerender="1">document.getElementById' in html, (
+            f"{path}: the marked synchronous hide script is missing — "
+            "JS browsers would flash the prose before React mounts"
+        )
+        assert "<main>" in html, f"{path}: prerender block carries no <main> prose"
+
+
 @pytest.mark.parametrize("path", ["/nope", "/basic/does-not-exist"])
 def test_unknown_paths_do_not_500(client, path):
     assert client.get(path).status in (200, 404), "unknown path should 404 or render the app's 404"

@@ -25,11 +25,17 @@ import os
 #   - "Pip Install Python" is the byline (who made it), never the site name.
 SITE_BRAND = "dash-excalidraw — Excalidraw drawing canvas for Dash"
 
+# ~155 characters, and that ceiling is the point. Google truncates a meta
+# description around there and REWRITES anything longer from page text — so an
+# over-long one does not merely get clipped, it forfeits the snippet to
+# whatever the crawler picks instead. This was 270 chars (an outside SEO audit
+# found it); the detail it carried lives on the pages that document it, and in
+# the JSON-LD `SoftwareApplication` block, which has no such limit but is kept
+# in step here so the two never describe this site differently.
 SITE_DESCRIPTION = (
-    "dash-excalidraw — the Excalidraw drawing canvas as a Dash component. "
-    "A JSON-safe prop surface, imperative actions via a command/lastExport "
-    "round-trip, event snapshots, image externalization, and AI scene "
-    "generation. Dash 3+ and 4, Excalidraw 0.18. By Pip Install Python."
+    "dash-excalidraw — the Excalidraw whiteboard as a Dash component. "
+    "JSON-safe props, imperative commands, event snapshots, AI scenes. "
+    "By Pip Install Python."
 )
 
 # Resolves {%title%} in templates/index.html, which is what the served HTML

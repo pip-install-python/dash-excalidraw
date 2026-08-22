@@ -132,6 +132,15 @@ def create_header(data):
                             size="sm",
                             visibleFrom="md",
                         ),
+                        # The home link's accessible name comes from the
+                        # aria-label, NOT the wordmark text: below xs the
+                        # wordmark is display:none (visibleFrom), which removes
+                        # it from the accessibility tree — without the label the
+                        # home link would have no name at all on phones. The
+                        # logo is decorative beside it, so alt="" rather than a
+                        # second, competing name. visibleFrom (vs dropping the
+                        # node) still keeps the typing animation's target in the
+                        # DOM.
                         dmc.Anchor(
                             dmc.Group(
                                 [
@@ -142,7 +151,7 @@ def create_header(data):
                                         # served rather than the 512px one so a
                                         # 36px slot isn't downloading a 56 KB image.
                                         src=get_asset_url('excalidraw-mark-144.png'),
-                                        alt=f"{SITE_SHORT_NAME} logo",
+                                        alt="",
                                         style={'height': '36px', 'width': '36px'},
                                     ),
                                     dmc.Text(
@@ -163,14 +172,13 @@ def create_header(data):
                                         # it was what pushed the row over.
                                         #
                                         # visibleFrom renders a CSS class
-                                        # (`mantine-visible-from-xs`), so the
-                                        # element stays in the DOM: the mark
-                                        # is still in the accessibility tree
-                                        # via the logo's alt text, and
-                                        # assets/text_animation.js keeps
-                                        # finding #dash-docs-title to type
-                                        # into. Do not swap this for removing
-                                        # the component on small screens.
+                                        # (`mantine-visible-from-xs`), which is
+                                        # a display:none media query — so the
+                                        # node stays in the DOM for
+                                        # assets/text_animation.js to type into
+                                        # but is NOT in the accessibility tree
+                                        # below the breakpoint. That is why the
+                                        # anchor carries its own aria-label.
                                         visibleFrom="xs",
                                     ),
                                 ],
@@ -178,6 +186,7 @@ def create_header(data):
                             ),
                             href="/",
                             underline=False,
+                            **{"aria-label": f"{SITE_SHORT_NAME} — home"},
                         ),
                     ],
                     gap="md",

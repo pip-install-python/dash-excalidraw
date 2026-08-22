@@ -6,6 +6,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site — round-2 pass (2026-08-22)
+
+Follow-ups from the gate-wave review, an outside SEO audit, and the
+dash-improve-my-llms 2.6.1 pickup.
+
+#### Fixed
+
+- **The home link had no accessible name on phones.** Below 576px the
+  wordmark is `display: none` (that is what `visibleFrom` compiles to), and a
+  display:none subtree is removed from the accessibility tree entirely — so
+  with a decorative logo beside it the branded header link announced as just
+  "link", with nothing saying where it goes. The gate-wave report claimed
+  `visibleFrom` "stays in the accessibility tree"; **that was wrong**, and the
+  report has been corrected. The anchor now carries a permanent `aria-label`
+  and the logo is explicitly decorative (`alt=""`) so the two do not compete
+  for the accessible name — template 1.6.6's pattern.
+- **The meta description was 270 characters.** Google truncates around
+  155-160 and, for a description it judges unrepresentative, rewrites the
+  snippet from page text — so an over-long one forfeits the snippet rather
+  than shortening it. Now 153, in `lib/constants.SITE_DESCRIPTION`, with
+  index.html's JSON-LD copy kept in step.
+- **The meta keywords still described the template.** The tag shipped naming
+  Dash Mantine Components, markdown docs and developer tools — the one tag
+  that states outright what a site is about never once mentioned Excalidraw.
+  Replaced with terms for the component.
+
+#### Changed
+
+- **`lib/network_directory.py` re-copied verbatim from the boilerplate.**
+  Template 1.6.5 added `excalidraw.2plot.dev` and `modelviewer.2plot.dev` to
+  the canonical list now that both are live. `test_this_host_is_queued_for_registration`
+  fired on the re-copy exactly as it was designed to, and is replaced by two
+  tests that pin the steady state: the self-filter removes exactly one row
+  (which proves the spelling), and this host's row exists at the source
+  (which a healthy self-filter would otherwise hide).
+- **dimll floor 2.6.0 → 2.6.1**, in requirements (including the commented
+  backend extras), `run.py`'s boot floor and its message, and CI's two
+  version fingerprints. 2.6.1 makes the universal prerender visible to non-JS
+  consumers: below it the injected block carries a literal `hidden`
+  attribute, so every visibility-respecting reader saw "Loading..." and
+  nothing else. A `>=2.6.0` build resolves 2.6.1 today, but that is
+  resolution luck rather than a guarantee — the floor is stated where the
+  guarantee is. Verified by downgrading: on 2.6.0 the new generic-lane test
+  fails on the `hidden` attribute and the boot floor refuses to start.
+
 ### Site — gate-wave pass (2026-08-21)
 
 The 2plot network's gate/reporter/SEO sync, from

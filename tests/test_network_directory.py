@@ -46,51 +46,46 @@ def test_tiers_do_not_overlap():
 
 
 def test_this_app_is_not_its_own_peer():
-    """The invariant, and the one deviation this host currently carries.
+    """The self-filter, now that this host IS in the canonical directory.
 
-    A site must never list itself: `peers_for` exists to strip the caller's
-    own origin so /llms.txt's Network section is other hosts only.
+    Two things at once. A site must never list itself — `peers_for` strips the
+    caller's own origin so /llms.txt's Network section is other hosts only. And
+    the filter must actually have removed exactly one row, which is what proves
+    this host's URL is spelled in `PEERS` the same way `BASE_URL` spells it: a
+    trailing slash or an http:// would filter nothing and this site would
+    publish itself as its own peer.
 
-    The template additionally asserts the filter removed EXACTLY ONE entry —
-    proof that this host's own URL is spelled correctly in the directory. It
-    cannot hold here yet, and deliberately so: `lib/network_directory.py` is
-    a verbatim copy of the canonical list, and that list omits
-    excalidraw.2plot.dev by design ("only list hosts that are actually
-    live"). This host has never deployed, so it is not in PEERS.
-
-    Written to flip on its own: the moment the canonical directory gains
-    this host — the queued registration in the deploy-readiness checklist —
-    the second branch takes over and pins the spelling exactly as the
-    template does. See also `test_this_host_is_queued_for_registration`.
+    Until 2026-08-22 this assertion could not hold here. The canonical list
+    omits a host until it deploys, so `excalidraw.2plot.dev` was deliberately
+    absent and a companion test recorded that absence as a decision. Template
+    1.6.5 added this host and dash-model-viewer once both were live; that
+    companion test fired on the re-copy, exactly as designed, and this is what
+    replaces it.
     """
     peers = nd.peers_for(BASE_URL)
     assert all(p["url"].rstrip("/") != BASE_URL.rstrip("/") for p in peers)
-
-    listed = any(e["url"].rstrip("/") == BASE_URL.rstrip("/") for e in nd.PEERS)
-    if listed:
-        assert len(peers) == len(nd.PEERS) - 1, (
-            f"{BASE_URL} is in PEERS but the self-filter removed nothing — it "
-            "is spelled differently there."
-        )
-    else:
-        assert len(peers) == len(nd.PEERS)
-
-
-def test_this_host_is_queued_for_registration():
-    """A named record of the one directory deviation, not a silent absence.
-
-    The canonical `PEERS` list is copied byte-for-byte from the boilerplate,
-    and the fleet's rule is that a host joins it in the same change that
-    ships it. Until excalidraw.2plot.dev is live, its absence is correct —
-    but an absence with no test looks identical to an oversight, which is how
-    a host stays unlisted for a release after it deploys.
-
-    Delete this test in the change that adds the entry.
-    """
-    assert not any(e["url"].rstrip("/") == BASE_URL.rstrip("/") for e in nd.PEERS), (
-        f"{BASE_URL} is now in the canonical directory — good. Remove this "
-        "test and let test_this_app_is_not_its_own_peer pin the spelling."
+    assert len(peers) == len(nd.PEERS) - 1, (
+        f"{BASE_URL} is not in PEERS, so the self-filter removed nothing. Either "
+        "the app's own URL is missing from the directory or it is spelled "
+        "differently there."
     )
+
+
+def test_this_host_is_in_the_canonical_directory():
+    """The other half: present in the source list, absent from what we serve.
+
+    `peers_for` filtering our row out is correct and is what the test above
+    pins — which means a total disappearance from `PEERS` would look identical
+    to a healthy self-filter from the outside. This asserts the row exists at
+    the source, so a future verbatim re-copy that drops this host fails here
+    rather than quietly unlisting the site from its own network.
+    """
+    listed = [e for e in nd.PEERS if e["url"].rstrip("/") == BASE_URL.rstrip("/")]
+    assert len(listed) == 1, (
+        f"{BASE_URL} is not in the canonical PEERS list (found {len(listed)} "
+        "rows). Re-copy lib/network_directory.py from the boilerplate."
+    )
+    assert listed[0]["description"].strip(), "this host's directory row has no description"
 
 
 def test_a_satellite_filters_only_itself():

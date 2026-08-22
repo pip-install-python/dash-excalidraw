@@ -136,10 +136,24 @@ python-dotenv>=1.0.0
 # assets/excalidraw-mark.png (scripts/make_brand_assets.py) — none of them
 # is template art. The fleet's pixels-BEFORE-floor ordering rule is
 # therefore already satisfied on this repo.
-dash-improve-my-llms[flask]>=2.6.0
-# dash-improve-my-llms[fastapi]>=2.6.0   # Dash 4.4+ FastAPI backend
-# dash-improve-my-llms[quart]>=2.6.0     # Dash 4.4+ Quart backend
-# dash-improve-my-llms[all]>=2.6.0       # all three
+#
+# 2.6.1 makes the universal prerender VISIBLE to non-JS consumers. Below it
+# the injected block carries a literal `hidden` attribute, so every
+# visibility-respecting reader — html-to-text extractors, and arguably
+# crawler content-weighting — saw "Loading..." and nothing else, on every
+# page. An outside audit found it across six hosts on 2026-08-22 and it was
+# fixed at the package. Nothing changes for humans: React's mount wipes the
+# prerender pair either way.
+#
+# The floor is 2.6.1, not 2.6.0, precisely BECAUSE a >=2.6.0 build resolves
+# 2.6.1 today. That is resolution luck, not a guarantee — a rebuild against a
+# pinned index, or any resolver that picks an older compatible release, would
+# silently reinstate the hidden attribute with no test able to see it. State
+# the floor where the guarantee is.
+dash-improve-my-llms[flask]>=2.6.1
+# dash-improve-my-llms[fastapi]>=2.6.1   # Dash 4.4+ FastAPI backend
+# dash-improve-my-llms[quart]>=2.6.1     # Dash 4.4+ Quart backend
+# dash-improve-my-llms[all]>=2.6.1       # all three
 
 # Background callbacks — /ai-agent's model call
 #

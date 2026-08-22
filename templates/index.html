@@ -71,8 +71,13 @@
     <!-- Main title for SEO - should match or complement the title element -->
     <meta name="title" content="dash-excalidraw — Excalidraw drawing canvas for Dash">
 
-    <!-- Keywords - Helps search engines understand your content (optional in 2024) -->
-    <meta name="keywords" content="Python Dash, documentation, Dash Mantine Components, interactive docs, Python documentation, Plotly Dash, markdown docs, technical documentation, developer tools">
+    <!-- Keywords. Google has ignored this tag since 2009; Bing and several
+         AI crawlers still read it, and it costs one line. What it must NOT
+         be is the template's list — this shipped describing a documentation
+         BOILERPLATE, so the one tag that states outright what this site is
+         about never once mentioned Excalidraw. Terms describe the COMPONENT,
+         not the docs framework it happens to be documented with. -->
+    <meta name="keywords" content="Excalidraw, Dash Excalidraw, whiteboard, drawing canvas, sketching, hand-drawn diagrams, diagramming, Plotly Dash, Python, Dash component, collaborative whiteboard, canvas drawing, excalidraw react">
 
     <!-- Author - Your name or organization -->
     <meta name="author" content="Pip Install Python LLC">
@@ -326,7 +331,7 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "dash-excalidraw — Excalidraw drawing canvas for Dash",
-        "description": "dash-excalidraw \u2014 the Excalidraw drawing canvas as a Dash component. A JSON-safe prop surface, imperative actions via a command/lastExport round-trip, event snapshots, image externalization, and AI scene generation. Dash 3+ and 4, Excalidraw 0.18. By Pip Install Python.",
+        "description": "dash-excalidraw \u2014 the Excalidraw whiteboard as a Dash component. JSON-safe props, imperative commands, event snapshots, AI scenes. By Pip Install Python.",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Any",
         "url": "https://excalidraw.2plot.dev",

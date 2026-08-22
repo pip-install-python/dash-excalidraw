@@ -63,6 +63,9 @@ from dash_improve_my_llms import (
 # per-page `title`/`image_url`/`schema_type` actually reaching the crawler
 # document, /favicon.ico answered with a redirect instead of the app shell,
 # and a prerender that no longer clobbers the browser's per-page <title>.
+# 2.6.1 is the floor: it makes the universal prerender visible to non-JS
+# consumers (below it the injected block carries a literal `hidden`
+# attribute, so text extractors read "Loading..." instead of the page).
 # 2.6.0 raises it to the honesty standard: sitemap <lastmod> is emitted
 # verbatim from `register_page_metadata(lastmod=)` and OMITTED when unset.
 # The floor is load-bearing for HONESTY, not crash avoidance: older packages
@@ -75,7 +78,7 @@ from dash_improve_my_llms import (
 # `configure_seo` is deliberately imported AFTER this floor fires (see the
 # floors block) so a stale environment gets the floor's diagnosis instead of
 # a bare ImportError.
-LLMS_PKG_FLOOR = (2, 6, 0)
+LLMS_PKG_FLOOR = (2, 6, 1)
 
 # THE FORK POINT — claim this app's network identity before any hub-facing
 # module imports. Every module that names this app (satellite_reporter,
@@ -170,7 +173,10 @@ if LLMS_PKG_FLOOR > _version(LLMS_PKG_VERSION):
     _dependency_floor(
         f"dash-improve-my-llms {LLMS_PKG_VERSION} is below the "
         f"{'.'.join(str(n) for n in LLMS_PKG_FLOOR)} floor in requirements.txt. "
-        "Below 2.6.0 the sitemap goes back to lying: `lastmod=` is accepted "
+        "Below 2.6.1 the universal prerender ships with a literal `hidden` "
+        "attribute, so every non-JS consumer reads 'Loading...' instead of "
+        "this page's prose. Below 2.6.0 the sitemap ALSO goes back to lying: "
+        "`lastmod=` is accepted "
         "into **kwargs and SILENTLY IGNORED, so every date this repo stamped "
         "is swallowed and <lastmod> reverts to invented build dates. Below "
         "2.5.1 the Tier-B SEO standard additionally unwinds: `configure_seo` "
