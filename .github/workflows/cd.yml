@@ -105,7 +105,17 @@ jobs:
   verify:
     name: verify the live site
     needs: [deploy]
-    if: always() && needs.deploy.result != 'cancelled'
+    # `always()` so a deploy whose hook step had trouble still gets its live
+    # site checked — but NOT when `deploy` was skipped, which only happens
+    # because `test` failed. Running the production battery after CI already
+    # said no adds a second red check that reads as "the live site is
+    # broken" when the live site was never touched. Measured on this repo's
+    # first CD run, 2026-08-21: six CI failures produced a seventh, and the
+    # seventh was the most alarming and the least true.
+    #
+    # DEVIATION from the template, deliberately. Propagate it upstream if it
+    # holds up here.
+    if: always() && needs.deploy.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

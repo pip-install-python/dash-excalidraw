@@ -272,3 +272,89 @@ Render does not deploy". Confirmed exactly, and worse than it sounds:
     published, the JSON-LD `sameAs` names a 404.
   - CI has never executed on this repo. Everything above is locally
     verified; the first CI run is the first independent proof.
+
+## gate-wave — round 2: the first CI run
+
+date: 2026-08-21
+run: CD #1 on main @ 361752d — 17 jobs, 9 failing, 2 skipped.
+verdict: every failure was in the workflows, none in the site. The four
+  pytest legs, lint, and the Docker build-boot-battery job all passed on the
+  first attempt, which is the part that says the application is sound.
+
+Job logs were not readable from here (the API returns 403 without admin
+rights), so each cause below was reproduced locally rather than read.
+
+### Causes, in order of how many checks they cost
+
+  1. **6 × `Docs · Dash X · Python Y` — `scripts/smoke_test.py` did not
+     exist.** The same class as `check_release.py` in round 1: the whole
+     `docs-compat` job was leaflet's, and so was the script it calls. Round
+     1's sweep grepped the workflows for `leaflet` and `dl2` and found the
+     naming; it never asked whether every `scripts/*.py` a workflow runs is
+     actually in the tree. Ported (48/48 checks pass locally) — it is a
+     genuinely useful harness here, because it node-syntax-checks all 23
+     inline clientside callbacks and all 4 asset JS files, which no pytest
+     can do.
+
+  2. **`Build + verify the wheel` — a bug I introduced in round 1.** The
+     rewritten packaging-leak check called
+     `importlib.util.find_spec("lib")` inside a `python - <<EOF` heredoc
+     whose cwd was the repo root. Python puts the cwd on `sys.path` for a
+     stdin script, so it found the repo's OWN `lib/`, `components/`,
+     `pages/` and `docs/` directories and asserted on the first one. The
+     wheel was clean the entire time. Replaced with two checks that cannot
+     be fooled by cwd: a `zipfile` scan of `dist/*.whl` (the artifact
+     itself), and the clean-venv import moved to run from `/tmp` with an
+     assertion that the import resolved inside the venv.
+
+  3. **`pip-audit (advisory)` — working as designed, not a defect.**
+     `continue-on-error: true` means the RUN is not blocked, but the CHECK
+     still renders red. That is the fleet's shape, identical in the
+     boilerplate and leaflet, and it was left alone. The failing command is
+     `pip-audit` itself, not the `grep` the step is named after — GitHub
+     names a multi-line `run:` by its first line.
+
+  4. **`verify the live site` — a misleading second failure.** `deploy` was
+     skipped because `test` failed, and `verify` ran anyway on
+     `if: always() && needs.deploy.result != 'cancelled'`, so it hit
+     production and failed there. Six CI failures produced a seventh, and
+     the seventh read as "the live site is broken" when the live site had
+     never been touched. Tightened to `== 'success'` — a DEVIATION from the
+     template, flagged for upstream.
+
+### Measured while fixing, and worth its own line
+
+  The `docs-compat` matrix tested Dash 4.1.0, inherited from a repo whose
+  floor genuinely is 4.1. **This site cannot run on 4.1.0 at all**: run.py
+  passes `backend=` to the Dash constructor (the pluggable-backend
+  selection) and 4.1.0 rejects it with `TypeError: Dash() got an unexpected
+  keyword argument 'backend'`, raised during construction. Measured by
+  installing each version and running the smoke harness:
+
+    dash 4.1.0  — 0/1, cannot construct the app
+    dash 4.2.0  — 48/48
+    dash 4.3.0  — 48/48
+    dash 4.4.1  — 48/48
+
+  So the real floor for this documentation site is **4.2.0**, and the
+  matrix now says so. requirements.txt stays stricter (`dash~=4.4.1`);
+  these legs prove the headroom below the pin.
+
+  A second latent defect fell out of the same reading: `requirements.txt`
+  never carried the `# COMPAT-MATRIX: dash` marker the job's
+  `grep -v 'COMPAT-MATRIX: dash'` strips. Without it the grep matched
+  nothing, the pin was reinstated, and every leg would have resolved back
+  to 4.4.1 — a green matrix testing one version three times. Added, and
+  pinned by a test.
+
+### New tests — the class, not the instance
+
+  `tests/test_config.py` gains three:
+    - every `scripts/*.py` a workflow runs must exist in the tree;
+    - no workflow may name another repo's artifacts in live YAML
+      (`dash_leaflet2`, `leaflet.2plot.dev`, `boilerplate.2plot.dev`, …) —
+      comments may, since explaining provenance is legitimate;
+    - the dash pin must carry its COMPAT-MATRIX marker.
+  Each was verified to FAIL when the thing it guards is broken.
+
+  Suite: 331 passed (was 328). flake8 clean. smoke_test 48/48.

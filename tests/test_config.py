@@ -238,3 +238,67 @@ def test_no_links_to_retired_domains():
         for match in RETIRED_LINKS.finditer(path.read_text(errors="ignore")):
             offenders.append(f"{path.relative_to(REPO_ROOT)} -> {match.group(1)}")
     assert offenders == [], f"links to retired domains: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# Workflow references
+#
+# This repo's CI was forked from another satellite's and never adapted. Three
+# of its jobs called scripts that exist there and not here — smoke_test.py,
+# compat_matrix.py, check_release.py — and nothing noticed for the whole life
+# of the file, because CI triggers on pull requests and this site lived on a
+# branch that was never PR'd. The first run was the first deploy, and it lost
+# nine checks to "No such file or directory".
+#
+# A workflow cannot be unit-tested, but the assumptions it makes about the
+# repo can be. These two tests are that.
+# ---------------------------------------------------------------------------
+
+WORKFLOWS = sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
+
+
+def test_every_script_a_workflow_runs_exists():
+    """`run: python scripts/x.py` must name a file that is actually here."""
+    missing = []
+    for wf in WORKFLOWS:
+        for ref in set(re.findall(r"scripts/[A-Za-z0-9_]+\.py", wf.read_text())):
+            if not (REPO_ROOT / ref).exists():
+                missing.append(f"{wf.name} -> {ref}")
+    assert missing == [], (
+        f"workflows call scripts this repo does not have: {missing}"
+    )
+
+
+def test_no_workflow_names_another_repos_artifacts():
+    """A forked workflow that still says `dash_leaflet2` builds, tags and
+    publishes the wrong thing — and `SITE_URL` pointing at another live host
+    means a deploy of THIS repo smoke-tests THAT one and reports it green."""
+    foreign = ("dash_leaflet2", "dash-leaflet2", "leaflet.2plot.dev",
+               "boilerplate.2plot.dev", "dash_pannellum", "pannellum.2plot.dev")
+    hits = []
+    for wf in WORKFLOWS:
+        for line_no, line in enumerate(wf.read_text().splitlines(), 1):
+            # Prose may name another repo when explaining where something
+            # came from; only live YAML may not.
+            if line.lstrip().startswith("#"):
+                continue
+            for name in foreign:
+                if name in line:
+                    hits.append(f"{wf.name}:{line_no}: {line.strip()[:70]}")
+    assert hits == [], f"workflows reference another repo's artifacts: {hits}"
+
+
+def test_the_dash_pin_carries_the_compat_matrix_marker():
+    """CI's docs-compat job strips this line to install one Dash per leg.
+
+    The strip is `grep -v 'COMPAT-MATRIX: dash'`. Without the marker it
+    silently matches nothing, requirements.txt reinstates the pin, and every
+    leg of the matrix measures the pinned version — the matrix looks green
+    and tests one version three times.
+    """
+    lines = [ln for ln in (REPO_ROOT / "requirements.txt").read_text().splitlines()
+             if re.match(r"^dash[~=<>\[]", ln)]
+    assert len(lines) == 1, f"expected exactly one dash pin line, got {lines}"
+    assert "# COMPAT-MATRIX: dash" in lines[0], (
+        f"the dash pin lost its COMPAT-MATRIX marker: {lines[0]!r}"
+    )

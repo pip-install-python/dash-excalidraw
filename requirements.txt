@@ -38,7 +38,13 @@ importlib-metadata
 # template, so a Flask deployment becomes a FastAPI deployment with one env
 # change and no code change. A Flask-only pin would encode an assumption that
 # a single deploy setting can invalidate.
-dash~=4.4.1
+# The `# COMPAT-MATRIX: dash` marker is LOAD-BEARING, not a note. CI's
+# docs-compat job installs one specific Dash version per leg and then
+# installs this file with `grep -v 'COMPAT-MATRIX: dash'` so the pin
+# cannot drag the leg back to 4.4.1. Without the marker that grep is a
+# silent no-op and the whole matrix measures 4.4.1 six times. Keep the
+# pin on ONE line, and keep the marker on it.
+dash~=4.4.1  # COMPAT-MATRIX: dash
 dash-iconify>=0.1.2
 # 2.8.0 is REQUIRED, not preferred: on 2.7.0 the network-standard
 # mobile drawer (components/navbar.create_navbar_drawer) renders as a

@@ -191,8 +191,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The floor, the two intermediate minors, and the current release.
-        dash: ["4.1.0", "4.2.0", "4.3.0", "4.4.1"]
+        # The floor, the intermediate minor, and the current release.
+        #
+        # 4.1.0 is NOT here, and that is measured rather than assumed: this
+        # site passes `backend=` to the Dash constructor (lib/backend.py's
+        # pluggable-backend selection), and 4.1.0 rejects it outright —
+        # `TypeError: Dash() got an unexpected keyword argument 'backend'`,
+        # raised during construction, so nothing boots at all. 4.2.0 and
+        # 4.3.0 both pass the full 48-check smoke locally. The matrix was
+        # inherited from a repo whose floor genuinely is 4.1; carrying that
+        # row here only ever produced a red check for a version this site
+        # has never supported.
+        #
+        # requirements.txt is stricter still (`dash~=4.4.1`). These legs
+        # prove headroom below the pin, which is what makes raising it a
+        # decision instead of a leap.
+        dash: ["4.2.0", "4.3.0", "4.4.1"]
         python: ["3.12"]
         include:
           # The docs-site Python range, against the current Dash. A full
@@ -226,7 +240,10 @@ jobs:
 
       - name: Install documentation-site requirements
         # The pinned Dash line is stripped so it cannot override the matrix
-        # version. Same rule as scripts/compat_matrix.py.
+        # version. That works only because the pin is on ONE line carrying
+        # the `# COMPAT-MATRIX: dash` marker — without the marker this grep
+        # is a silent no-op and requirements.txt drags every leg back to the
+        # pinned Dash, which is exactly what happened on the first run.
         run: |
           grep -v 'COMPAT-MATRIX: dash' requirements.txt > /tmp/reqs.txt
           python -m pip install -r /tmp/reqs.txt
@@ -389,37 +406,66 @@ jobs:
       - name: Check metadata
         run: python -m twine check dist/*
 
+      - name: The wheel contains the package and nothing else
+        # Read the ARTIFACT, not an installation. The docs site must never
+        # ride along: `pip install dash-excalidraw` promises Dash and nothing
+        # more, so vendor/, lib/, docs/ and the site's requirements must be
+        # absent from the zip. Asserted against dist/*.whl because that is
+        # cwd-independent and install-mode-independent — an earlier version
+        # of this step asked `importlib.util.find_spec("lib")` from a shell
+        # whose cwd was the repo root, so Python found the repo's own
+        # directories on sys.path and the check failed on a clean wheel.
+        run: |
+          python - <<'PY'
+          import glob, zipfile
+          wheel = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          print(f"{wheel}: {len(names)} entries")
+          stray = [n for n in names
+                   if not (n.startswith("dash_excalidraw/")
+                           or ".dist-info/" in n)]
+          assert not stray, f"packaging leak in the wheel: {stray}"
+          assert "dash_excalidraw/dash_excalidraw.js" in names, \
+              "JS bundle missing from the wheel"
+          for n in sorted(names):
+              print("   ", n)
+          PY
+
       - name: Install the wheel in a clean venv and import it
         # The package must work with ONLY `dash` present — nothing from
         # requirements.txt, which is the docs site's dependency set.
+        #
+        # Runs from /tmp deliberately. A `python - <<EOF` heredoc puts the
+        # CURRENT DIRECTORY on sys.path, so running it from the repo root
+        # would let the checkout's own dash_excalidraw/ satisfy the import
+        # and the whole check would pass without the wheel being involved.
         run: |
           python -m venv /tmp/clean
           /tmp/clean/bin/pip install --upgrade pip
-          /tmp/clean/bin/pip install dist/*.whl
+          /tmp/clean/bin/pip install "$(ls dist/*.whl)"
+          cd /tmp
           /tmp/clean/bin/python - <<'PY'
-          import pathlib
+          import pathlib, sys
 
           import dash_excalidraw as dex
 
           print("version:", dex.__version__)
 
-          here = pathlib.Path(dex.__file__).parent
+          here = pathlib.Path(dex.__file__).resolve().parent
+          # It must be the INSTALLED copy, not a stray checkout on sys.path.
+          assert "/tmp/clean/" in str(here), f"imported from {here}, not the venv"
 
           bundle = here / "dash_excalidraw.js"
           assert bundle.exists(), "JS bundle missing from the wheel"
           print("bundle:", bundle.stat().st_size // 1024, "KB")
 
-          # The docs site must NOT ride along. `pip install dash-excalidraw`
-          # depends on Dash alone, so none of the site's top-level packages
-          # may become importable from installing the wheel. Checked by
-          # import, not by walking site-packages: that is the thing a user
-          # would actually notice.
-          import importlib.util
-          for leak in ("lib", "components", "pages", "docs"):
-              assert importlib.util.find_spec(leak) is None, (
-                  f"{leak}/ leaked into the wheel — check "
-                  "[tool.setuptools.packages.find] in pyproject.toml"
-              )
+          # Dash and nothing else: the site's dependency set must not have
+          # been dragged in as a transitive requirement of the wheel.
+          import importlib.metadata as md
+          reqs = md.requires("dash-excalidraw") or []
+          print("declared requirements:", reqs)
+          assert all(r.split()[0].split(";")[0].strip().lower().startswith("dash")
+                     for r in reqs), f"unexpected runtime dependency: {reqs}"
 
           # The one component, and the pure-Python helpers re-exported beside
           # it (dash_excalidraw/helpers.py — the file-externalization pair
@@ -433,7 +479,7 @@ jobs:
       - name: Assert the wheel version matches pyproject
         run: |
           PY_VER=$(python -c "import re;print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
-          WHEEL_VER=$(/tmp/clean/bin/python -c "import dash_excalidraw;print(dash_excalidraw.__version__)")
+          WHEEL_VER=$(cd /tmp && /tmp/clean/bin/python -c "import dash_excalidraw;print(dash_excalidraw.__version__)")
           echo "pyproject=$PY_VER  installed=$WHEEL_VER"
           test "$PY_VER" = "$WHEEL_VER"
 

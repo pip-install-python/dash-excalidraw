@@ -16,6 +16,38 @@ the gate plumbing goes live and changes nothing. Everything here is the site
 under `run.py`; the `dash_excalidraw` package is untouched apart from one
 metadata fix.
 
+#### Fixed — the first CI run (round 2)
+
+The first run of the rewritten workflows lost nine checks. Every one was in
+the CI configuration; none was in the site. The four pytest legs, lint, and
+the Docker build-boot-battery job all passed first time.
+
+- **`scripts/smoke_test.py` did not exist** — six `docs-compat` legs called
+  it. Same class as `check_release.py`: the job and its script were both
+  leaflet's. Ported; it node-syntax-checks all 23 inline clientside callbacks
+  and all four asset JS files, which no pytest can reach.
+- **The wheel's packaging-leak check was fooled by its own working
+  directory.** `importlib.util.find_spec("lib")` ran in a heredoc whose cwd
+  was the repo root, and Python puts the cwd on `sys.path` for a stdin
+  script — so it found the repo's own directories and failed on a clean
+  wheel. Now a `zipfile` scan of the artifact, plus a clean-venv import run
+  from `/tmp`.
+- **The docs-compat matrix tested Dash 4.1.0, which this site cannot run
+  on.** `run.py` passes `backend=` to the Dash constructor and 4.1.0 rejects
+  it during construction. Measured: 4.1.0 cannot boot; 4.2.0, 4.3.0 and
+  4.4.1 each pass 48/48. The floor is 4.2.0 and the matrix now says so.
+- **`requirements.txt` never carried the `# COMPAT-MATRIX: dash` marker** the
+  matrix strips, so the pin was silently reinstated on every leg — a green
+  matrix testing one Dash version three times.
+- **A failed CI run produced a misleading production failure.** With `deploy`
+  skipped, `verify the live site` still ran and failed against production.
+  Now gated on the deploy having actually succeeded.
+
+`tests/test_config.py` gains three tests for the class rather than the
+instances: every script a workflow runs must exist, no workflow may name
+another repo's artifacts in live YAML, and the dash pin must keep its
+matrix marker.
+
 #### Fixed — things that would have broken the first deploy
 
 - **The site was on a branch Render does not deploy.** `main` held the
