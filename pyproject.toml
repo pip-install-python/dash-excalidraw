@@ -41,7 +41,7 @@ ai = [
 colab = [
     "flask-socketio>=5.3.0",
     "dash-socketio>=1.1.1",
-    "python-socketio>=5.0",
+    "python-socketio>=5.16.4",
 ]
 dev = [
     "dash[dev]>=3.0.3",
