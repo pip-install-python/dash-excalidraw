@@ -6,6 +6,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site — gate-wave pass (2026-08-21)
+
+The 2plot network's gate/reporter/SEO sync, from
+dash-documentation-boilerplate 1.6.4, plus the deployment groundwork this
+host had never had. **The documentation site is not affected in anything a
+visitor can see: it ships DARK** (`PAGE_DEFAULT_TIER=public`), which means
+the gate plumbing goes live and changes nothing. Everything here is the site
+under `run.py`; the `dash_excalidraw` package is untouched apart from one
+metadata fix.
+
+#### Fixed — things that would have broken the first deploy
+
+- **The site was on a branch Render does not deploy.** `main` held the
+  initial component commit and nothing else; the entire documentation site
+  lived on `feat/excalidraw-0.18.1`. `main` is now fast-forwarded onto it —
+  no commit rewritten, squashed or dropped.
+- **`.github/workflows/cd.yml` deployed and smoke-tested
+  `leaflet.2plot.dev`.** It was a copy of that repo's file and had never
+  run. Rewritten from the template, which also carries the fix for CD
+  verifying the *previous* release whenever the deploy hook is unset — the
+  fleet's default configuration.
+- **`.github/workflows/ci.yml` and `release.yml` were also leaflet's**:
+  package jobs importing `dash_leaflet2`, an image tagged
+  `dash-leaflet2-docs`, flake8 pointed at a `usage.py` this repo lacks, a
+  missing `scripts/check_release.py`, and `dash-leaflet2` as the PyPI
+  trusted-publishing target.
+- **The Dockerfile bound a hardcoded port 8550**, which Render (which
+  assigns `$PORT`) cannot health-check, and installed nodejs + npm to build
+  a bundle that is committed. Rewritten to the fleet shape: python 3.12-slim,
+  binds `$PORT`, `WEB_CONCURRENCY`, a 120s timeout for the model calls, no
+  Node.
+- **`.env.example` documented `CLERK_SATELLITE_DOMAIN=excalidraw.2plot.dev`.**
+  Every `*.2plot.dev` docs host is an allowed *subdomain* of the one
+  `2plot.dev` satellite; the per-host spelling resolves to NXDOMAIN and hangs
+  sign-in with no error.
+
+#### Fixed — SEO and identity regressions
+
+- `twitter:card` had been deleted from `templates/index.html`. Dash declares
+  it with `property=` and Twitter's parser reads only `name=`, so no scraper
+  could see a card type at all. Restored.
+- Three icon links (96/192/512) had been dropped from the head, so it could
+  not agree with the crawler head. Restored.
+- `msapplication-TileColor` still carried the template's teal against a
+  violet `theme-color`.
+- The noscript block advertised `/getting-started/llms.txt`, a template page
+  this site does not have.
+
+#### Added
+
+- The interactive gate, **dark**: `lib/gate_layouts.py`, `lib/access.py`'s
+  two-axis resolution, `lib/page_visibility.py` and the `/admin/control-board`
+  page, `lib/agent_key.py` (`/api/agent-key`), `assets/auth_gate.*`.
+- `configure_seo` with this site's own seven-icon set, social card and
+  publisher/`sameAs`; `SoftwareApplication` on the home page; and truthful
+  `lastmod` on all fourteen docs, taken from each file's real last-commit
+  date via `git log` — never invented, never from a file mtime.
+- `lib/versions.py`, so prose can write `{{VERSION:<dist>}}` instead of a
+  number that goes stale.
+- `scripts/check_release.py` and `scripts/make_favicons.py`.
+- `DEPLOY-READINESS.md` (the owner-side deploy checklist) and
+  `X402-SYNC-REPORT.md` (what this pass did, measured).
+
+#### Changed
+
+- **Vendored `dash-clerk-auth` 1.0.0 → 1.0.5**, from the hook repo's `dist/`
+  and admitted only on sha256
+  `a2f9062e…b74f3`. 1.0.5 is the release that reconciles the *return trip*:
+  landing back on a gated page after signing in on the primary used to show
+  the gate card until a manual refresh.
+- **Security floors**: `clerk-backend-api>=7.0.0,<8` and
+  `cryptography>=50.0.0`. The old SDK cap held `cryptography` below the fixes
+  for GHSA-537c-gmf6-5ccf and PYSEC-2026-3552/3553/3554; all four now audit
+  clean.
+- Floors raised: `dash-improve-my-llms[flask]>=2.6.0` (honest sitemap
+  `lastmod`, icon autodiscovery), `dash-mantine-components>=2.8.0` (below it
+  the mobile drawer renders as a floating card), `plotly>=6.9.0`.
+- `lib/satellite_reporter.py` is now **byte-identical** to the template's —
+  which is why `run.py` claims `SATELLITE_APP_KEY=excalidraw` via
+  `os.environ.setdefault` before any hub-facing import. Without that, an
+  unset variable would file this site's traffic under the template's row.
+- `/healthz` reports `build` (the running instance's commit) alongside the
+  existing `app`, so CD can verify the artifact it shipped.
+- `render.yaml` fully authored for Docker + the 1 GB `/var/data` disk, and
+  deliberately declares **no** env-group-owned variable — a service-level
+  copy would shadow the group and mask future edits.
+- `dash_excalidraw/package-info.json` advertised
+  `@excalidraw/excalidraw ^0.17.6` while the bundle is built from 0.18.1.
+
+
 ### Security
 
 - **Repository history starts clean.** The project had never been committed to
