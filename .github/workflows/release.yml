@@ -6,10 +6,11 @@ name: Release
 # NO API TOKEN IS STORED ANYWHERE. Trusted publishing has PyPI verify a
 # short-lived OIDC token minted by GitHub for this specific repo + workflow +
 # environment, so there is no long-lived secret to leak or rotate. One-time
-# setup on PyPI (see RELEASING.md):
+# setup on PyPI (this repo has no RELEASING.md; the checks that gate a tag
+# live in scripts/check_release.py, run by the build job below):
 #   pypi.org -> your project -> Publishing -> Add a new pending publisher
 #     Owner:            pip-install-python
-#     Repository:       dash-leaflet2
+#     Repository:       dash-excalidraw
 #     Workflow name:    release.yml
 #     Environment name: pypi
 on:
@@ -109,7 +110,7 @@ jobs:
     # a human approval gate between the tag and the upload.
     environment:
       name: pypi
-      url: https://pypi.org/p/dash-leaflet2
+      url: https://pypi.org/p/dash-excalidraw
     permissions:
       # `id-token: write` is what lets GitHub mint the OIDC token PyPI checks.
       # Without it trusted publishing fails with an opaque 403.

@@ -1,10 +1,16 @@
-# CI for leaflet.2plot.dev AND for the dash-leaflet2 PyPI package.
+# CI for excalidraw.2plot.dev AND for the dash-excalidraw PyPI package.
 #
 # This repo is unusual among the 2plot satellites: it ships two artifacts from
 # one tree. The network's CI baseline (copied from
 # dash-documentation-boilerplate, which 2plot.ai and 2plot.dev also run) covers
 # the documentation site; the `package*` jobs below are this repo's own and
 # cover the wheel. Both have to stay green.
+#
+# This file was forked from 2plot_leaflet's and, until the gate-wave pass of
+# 2026-08-21, still named `dash_leaflet2` in every package job and tagged the
+# Docker image `dash-leaflet2-docs`. It had never run: the site lived on a
+# branch and CI only triggers on pull requests. Nothing here may name another
+# repo's artifacts.
 #
 # The network baseline, and why each piece is here:
 #
@@ -70,7 +76,11 @@ jobs:
           cache: pip
       - run: pip install flake8
       - name: flake8
-        run: flake8 lib components pages tests scripts run.py usage.py
+        # docs/ holds this site's page modules (the template keeps them
+        # in pages/), so it is part of the linted tree. usage.py — the
+        # component-library demo script the template's fork carried —
+        # does not exist in this repo.
+        run: flake8 lib components pages tests scripts run.py docs
 
       # The workflows lint themselves. This is not belt-and-braces: an invalid
       # workflow file is the one defect CI structurally cannot report, because
@@ -122,7 +132,7 @@ jobs:
           # import. httpx backs starlette's TestClient.
           if [ "${{ matrix.backend }}" != "flask" ]; then
             pip install "dash[${{ matrix.backend }}]" httpx
-            pip install "dash-improve-my-llms[${{ matrix.backend }}]>=2.3.4"
+            pip install "dash-improve-my-llms[${{ matrix.backend }}]>=2.6.0"
           fi
           pip install pytest
 
@@ -137,9 +147,11 @@ jobs:
           # The docs site pins 4.4.1; the PACKAGE floor (dash>=4.1) is proven
           # separately by the `package-python-range` job below.
           assert parts(dash.__version__)[:2] >= (4, 1), dash.__version__
-          # 2.3.4 is the network standard: below it `resolve_site_title` does
-          # not exist and this site's published identity degrades to app.title.
-          assert parts(pkg.__version__) >= (2, 3, 4), pkg.__version__
+          # 2.6.0 is the floor run.py enforces: below it `lastmod=` is
+          # swallowed into **kwargs and the sitemap reverts to invented
+          # build dates, and below 2.5.1 `configure_seo` does not exist at
+          # all — the crawler head loses this site's whole identity.
+          assert parts(pkg.__version__) >= (2, 6, 0), pkg.__version__
           # 21.x carried two request-smuggling CVEs (CVE-2024-6827,
           # CVE-2024-1135). markdown2dash's spurious <22 pin must not win.
           assert parts(gunicorn.__version__)[:2] >= (23, 0), gunicorn.__version__
@@ -255,7 +267,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          tags: dash-leaflet2-docs:ci
+          tags: dash-excalidraw-docs:ci
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -264,7 +276,7 @@ jobs:
       # are asserted here, inside the artifact that actually ships.
       - name: Version fingerprints inside the image
         run: |
-          docker run --rm dash-leaflet2-docs:ci python -c "
+          docker run --rm dash-excalidraw-docs:ci python -c "
           from importlib.metadata import version
 
           def parts(v):
@@ -276,7 +288,7 @@ jobs:
 
           v = version('dash-improve-my-llms')
           print('dash-improve-my-llms', v)
-          assert parts(v) >= (2, 3, 4), f'expected >=2.3.4 (resolve_site_title), image has {v}'
+          assert parts(v) >= (2, 6, 0), f'expected >=2.6.0 (configure_seo + honest lastmod), image has {v}'
 
           # markdown2dash installs with --no-deps to dodge its gunicorn<22
           # pin; this assert is what proves the dodge kept working. 21.x
@@ -288,6 +300,33 @@ jobs:
           # ...and that skipping its dependency graph did not skip the package.
           import markdown2dash  # noqa: F401
           print('markdown2dash importable')
+
+          # The floors requirements.txt asserts, checked inside the artifact.
+          # These were weaker than requirements.txt for this file's whole life,
+          # which means a resolution drift would have shipped in silence —
+          # the exact thing an in-image fingerprint exists to catch.
+          v = version('dash-mantine-components')
+          print('dash-mantine-components', v)
+          # 2.8.0: on 2.7.0 the network-standard mobile drawer renders as a
+          # floating card from identical props.
+          assert parts(v) >= (2, 8, 0), f'expected dmc>=2.8.0, image has {v}'
+
+          v = version('dash-clerk-auth')
+          print('dash-clerk-auth', v)
+          # 1.0.5 is the fleet line: the return-trip stale-gate fix. Vendored
+          # from a sha-verified tarball; this proves the tarball installed.
+          assert parts(v) >= (1, 0, 5), f'expected dash-clerk-auth>=1.0.5, image has {v}'
+
+          v = version('cryptography')
+          print('cryptography', v)
+          # The security floor. clerk-backend-api 5.x capped this below the
+          # fixes for GHSA-537c-gmf6-5ccf and PYSEC-2026-3552/3553/3554; SDK
+          # 7.0.0 is what unlocks it.
+          assert parts(v) >= (50, 0, 0), f'expected cryptography>=50, image has {v}'
+
+          v = version('clerk-backend-api')
+          print('clerk-backend-api', v)
+          assert (7, 0, 0) <= parts(v) < (8, 0, 0), f'expected clerk SDK 7.x, image has {v}'
           "
 
       # Boot with no secrets: Clerk falls open (dev mode) and the reporter
@@ -296,7 +335,7 @@ jobs:
       # never goes live.
       - name: Boot the container and wait for /healthz
         run: |
-          docker run -d --name docs -p 8050:8050 dash-leaflet2-docs:ci
+          docker run -d --name docs -p 8050:8050 dash-excalidraw-docs:ci
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8050/healthz > /dev/null; then
               echo "healthy after ~$((i*2))s"
@@ -313,7 +352,7 @@ jobs:
           docker logs --tail 100 docs
           exit 1
 
-      # The SAME script CD runs against https://leaflet.2plot.dev, so a failure
+      # The SAME script CD runs against https://excalidraw.2plot.dev, so a failure
       # in CI and a failure in production read identically.
       - name: Smoke battery against the booted container
         run: python3 scripts/network_smoke.py --base-url http://127.0.0.1:8050
@@ -360,27 +399,41 @@ jobs:
           /tmp/clean/bin/python - <<'PY'
           import pathlib
 
-          import dash_leaflet2 as dl2
+          import dash_excalidraw as dex
 
-          print("version:", dl2.__version__)
+          print("version:", dex.__version__)
 
-          bundle = pathlib.Path(dl2.__file__).parent / "dash_leaflet2.js"
+          here = pathlib.Path(dex.__file__).parent
+
+          bundle = here / "dash_excalidraw.js"
           assert bundle.exists(), "JS bundle missing from the wheel"
           print("bundle:", bundle.stat().st_size // 1024, "KB")
 
-          # The 27 MB react-docgen artifact must NOT ship.
-          meta = pathlib.Path(dl2.__file__).parent / "metadata.json"
-          assert not meta.exists(), "metadata.json leaked into the wheel"
+          # The docs site must NOT ride along. `pip install dash-excalidraw`
+          # depends on Dash alone, so none of the site's top-level packages
+          # may become importable from installing the wheel. Checked by
+          # import, not by walking site-packages: that is the thing a user
+          # would actually notice.
+          import importlib.util
+          for leak in ("lib", "components", "pages", "docs"):
+              assert importlib.util.find_spec(leak) is None, (
+                  f"{leak}/ leaked into the wheel — check "
+                  "[tool.setuptools.packages.find] in pyproject.toml"
+              )
 
-          for name in ("Map", "TileLayer", "Marker", "TileSelector", "EditControl"):
-              assert hasattr(dl2, name), f"missing component: {name}"
-          print("components OK")
+          # The one component, and the pure-Python helpers re-exported beside
+          # it (dash_excalidraw/helpers.py — the file-externalization pair
+          # documented on /file-uploads).
+          for name in ("DashExcalidraw", "decode_data_url",
+                       "strip_inline_files", "restore_inline_files"):
+              assert hasattr(dex, name), f"missing export: {name}"
+          print("exports OK:", sorted(dex.__all__))
           PY
 
       - name: Assert the wheel version matches pyproject
         run: |
           PY_VER=$(python -c "import re;print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
-          WHEEL_VER=$(/tmp/clean/bin/python -c "import dash_leaflet2;print(dash_leaflet2.__version__)")
+          WHEEL_VER=$(/tmp/clean/bin/python -c "import dash_excalidraw;print(dash_excalidraw.__version__)")
           echo "pyproject=$PY_VER  installed=$WHEEL_VER"
           test "$PY_VER" = "$WHEEL_VER"
 
@@ -419,28 +472,34 @@ jobs:
       - name: Import and build a layout
         run: |
           python - <<'PY'
-          import dash, dash_leaflet2 as dl2
+          import dash, dash_excalidraw as dex
           from dash import Dash, html
           from dash._utils import to_json
 
           app = Dash(__name__)
           app.layout = html.Div([
-              dl2.Map(id="m", center=[49.286, -123.12], zoom=12, children=[
-                  dl2.TileLayer(),
-                  dl2.Marker(id="pin", position=[49.286, -123.12],
-                             children=dl2.Tooltip("hi")),
-                  dl2.TileSelector(id="ts"),
-                  dl2.EditControl(id="ec"),
-                  dl2.LayersControl(children=[
-                      dl2.BaseLayer(dl2.TileLayer(), name="OSM", checked=True),
-                      dl2.Overlay(dl2.Circle(center=[49.286, -123.12], radius=800),
-                                  name="ring"),
-                  ]),
-              ]),
+              dex.DashExcalidraw(
+                  id="canvas",
+                  width="100%",
+                  height="600px",
+                  theme="dark",
+                  initialData={"elements": [], "appState": {"viewBackgroundColor": "#fff"}},
+                  UIOptions={"canvasActions": {"saveToActiveFile": False}},
+                  validateEmbeddable=["*.youtube.com"],
+              ),
           ])
+          # to_json is the real gate: every prop must survive the Python->JS
+          # bridge, which is the whole design constraint this component is
+          # built around (REBUILD.md — no functions, no RegExps, JSON only).
           to_json(app.layout)
-          print(f"dash={dash.__version__} dl2={dl2.__version__} "
-                f"components={len(dl2.__all__)} OK")
+
+          # The helpers ship in the same wheel and must work with nothing but
+          # the standard library.
+          mime, blob = dex.decode_data_url("data:image/png;base64,iVBORw0KGgo=")
+          assert mime == "image/png" and blob, (mime, blob)
+
+          print(f"dash={dash.__version__} dash_excalidraw={dex.__version__} "
+                f"exports={len(dex.__all__)} OK")
           PY
 
   pip-audit:
@@ -450,6 +509,18 @@ jobs:
     # Advisory on purpose. A CVE in a transitive dependency of a docs site is
     # worth knowing about the day it lands, and worth nobody's broken build at
     # 2am. The report is the value; flip this off once the baseline is quiet.
+    #
+    # STILL ADVISORY as of the gate-wave pass, 2026-08-21, and measured
+    # rather than assumed. The floors this pass added DID their job: the
+    # four advisories that motivated `clerk-backend-api>=7.0.0,<8` +
+    # `cryptography>=50.0.0` (GHSA-537c-gmf6-5ccf, PYSEC-2026-3552/3553/3554)
+    # are gone, and both packages audit clean. What is NOT clean is the rest
+    # of the transitive set — click, idna, pyasn1, urllib3, setuptools each
+    # have a fix version available, and `diskcache` 5.6.3 carries
+    # PYSEC-2026-2447 with NO fix published at all. Gating on that today
+    # would mean a permanently red required check nobody can clear, which
+    # teaches the team to ignore it. Flip `continue-on-error` off in the
+    # change that raises those pins, not before.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
