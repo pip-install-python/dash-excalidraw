@@ -302,3 +302,72 @@ def test_the_dash_pin_carries_the_compat_matrix_marker():
     assert "# COMPAT-MATRIX: dash" in lines[0], (
         f"the dash pin lost its COMPAT-MATRIX marker: {lines[0]!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Mobile layout — rules whose absence is invisible until someone opens the
+# site on a phone. Each was measured in a real 414px viewport before and
+# after; the numbers in the docstrings are those measurements.
+# ---------------------------------------------------------------------------
+
+MAIN_CSS = (REPO_ROOT / "assets" / "main.css").read_text()
+
+
+def test_no_stylesheet_targets_a_mantine_hashed_class():
+    """`.m_*` selectors are private, version-unstable build artifacts.
+
+    Nothing guarantees which component a hash names in the next release, and
+    a rule that misses simply stops applying — silently — while one that
+    starts matching something new applies geometry to the wrong component.
+    Audited against DMC 2.8: `.m_5caae85b` had already gone dead (zero
+    occurrences in the bundle) and `.m_9cdde9a` was putting a stray 15px
+    margin on the AppShell aside.
+
+    2plot_leaflet recorded the same lesson the hard way — a `.m_b8a05bbd`
+    rule (the Drawer content) with `!important` overrode the network-standard
+    drawer's docking styles and left that host's mobile navigation floating.
+
+    Style Mantine through props, `styles={}`, or the stable
+    `.mantine-<Component>-<part>` selectors the Styles API guarantees.
+    """
+    import re
+
+    for css in (REPO_ROOT / "assets").glob("*.css"):
+        text = css.read_text()
+        # Strip comments: the removal notice names the old hashes on purpose.
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+        hits = re.findall(r"\.m_[0-9a-f]{6,}", text)
+        assert hits == [], f"{css.name} targets Mantine hashed classes: {hits}"
+
+
+def test_markdown_tables_scroll_inside_their_own_box():
+    """A `<table>` is min-content sized and will drag the page wide.
+
+    Measured at 414px before this rule: the home page's prop-mapping table
+    rendered 471px inside a 318px column and the document scrolled 105px
+    horizontally — every paragraph on the page could be swiped sideways.
+    After: page overflow 0, the table a 318px box scrolling 471px of content.
+    """
+    import re
+
+    block = re.search(
+        r'\[id\^="m2d-page"\] table:not\(\.mantine-Table-root\)\s*\{([^}]*)\}',
+        MAIN_CSS)
+    assert block, "the markdown-table scroll rule is gone"
+    body = block.group(1)
+    for prop in ("display: block", "width: max-content",
+                 "max-width: 100%", "overflow-x: auto"):
+        assert prop in body, f"the table rule lost `{prop}`"
+
+
+def test_long_identifiers_in_control_labels_can_break():
+    """/ui-options labels a Switch `canvasActions.changeViewBackgroundColor`.
+
+    A dotted identifier offers no break opportunity, so it rendered 309px
+    wide in a 250px box and pushed 15px past a 414px viewport. `anywhere`
+    is the only value that helps — `break-word` will not break mid-token.
+    """
+    assert "overflow-wrap: anywhere" in MAIN_CSS, (
+        "control labels can no longer break, so a long identifier will "
+        "widen the page again"
+    )

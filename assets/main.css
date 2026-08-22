@@ -221,23 +221,96 @@ input:invalid {
     background: color-mix(in srgb, var(--mantine-color-gray-5), transparent 80%);
 }
 
-div .m_46b77525 {
-    margin-top: calc(0.5rem* var(--mantine-scale)) !important;
+/* ---------------------------------------------------------------------------
+ * REMOVED 2026-08-21: three rules that targeted Mantine's INTERNAL hashed
+ * class names (`.m_46b77525`, `.m_5caae85b`, `.m_9cdde9a`).
+ *
+ * Those hashes are private, version-unstable build artifacts. They are not
+ * API, nothing guarantees which component a given hash names in the next
+ * release, and two of these carried `!important` — so they beat the inline
+ * styles Mantine writes for layout. Audited against the installed DMC 2.8
+ * bundle:
+ *
+ *   .m_5caae85b   ZERO occurrences — the component it once styled is gone.
+ *                 A dead rule that would silently spring back to life the
+ *                 day Mantine reissues that hash for something else.
+ *   .m_9cdde9a    the AppShell ASIDE. The rule re-declared width, transform
+ *                 and z-index that Mantine already sets from its own custom
+ *                 properties — and added a stray `margin-top: 15px`, which
+ *                 is why the Table of Contents sat 15px lower than the
+ *                 content it indexes.
+ *   .m_46b77525   the header's search Select wrapper; replaced below with a
+ *                 selector that says so.
+ *
+ * This is the lesson 2plot_leaflet recorded after a `.m_b8a05bbd` rule —
+ * the Drawer content — silently overrode the network-standard drawer's
+ * docking styles and left that host's mobile navigation floating. Style
+ * Mantine components through their props and `styles={}`, or through the
+ * stable `.mantine-<Component>-<part>` selectors the Styles API guarantees.
+ * Never through an `.m_*` hash.
+ * ------------------------------------------------------------------------ */
+
+/* The header's search Select, nudged down to sit on the header's baseline.
+   Scoped to the header on purpose: the mobile drawer renders its own Select
+   (`#mobile-select-component`) which must NOT inherit this offset. */
+header.mantine-AppShell-header .mantine-Select-root {
+    margin-top: calc(0.5rem * var(--mantine-scale));
 }
 
-.m_5caae85b {
-    position: absolute !important;
-    top: calc(0.3125rem* var(--mantine-scale));
-    inset-inline-end: calc(0.3125rem* var(--mantine-scale));
-    z-index: 1;
+/* ---------------------------------------------------------------------------
+ * Markdown tables scroll INSIDE their own box.
+ *
+ * A `<table>` is min-content sized: it refuses to shrink below the widest
+ * unbreakable cell, and with `overflow: visible` it simply bursts out of its
+ * container and drags the whole page wide with it. Measured on the home page
+ * at a 414px viewport: the "Upstream shape / What Python sees / Why" table
+ * rendered 471px wide inside a 318px column and the document scrolled 105px
+ * horizontally — so every paragraph on the page could be swiped sideways.
+ *
+ * `display: block` makes the table an ordinary block box that can own an
+ * overflow; `width: max-content` keeps the columns at their natural widths
+ * instead of squashing them into unreadable slivers; `max-width: 100%` caps
+ * the box at the container so it cannot push the page; `overflow-x: auto`
+ * gives the table its own horizontal scroll. Above the container width the
+ * four together are a no-op, so nothing changes on a desktop.
+ *
+ * Scoped to the markdown page bodies (`#m2d-page-*`, set by pages/markdown.py
+ * and pages/home.py) and explicitly NOT to `dmc.Table`, which /file-uploads
+ * renders and which has its own scroll container.
+ * ------------------------------------------------------------------------ */
+[id^="m2d-page"] table:not(.mantine-Table-root) {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
 }
 
-.m_9cdde9a {
-    inset-inline-end: 0;
-    width: var(--app-shell-aside-width);
-    transform: var(--app-shell-aside-transform);
-    z-index: var(--app-shell-aside-z-index);
-    margin-top: 15px;
+/* Long identifiers in control labels must be allowed to break.
+ *
+ * /ui-options labels a Switch `canvasActions.changeViewBackgroundColor` —
+ * 309px of unbreakable text in a 250px box, because a dotted identifier
+ * offers no break opportunity. It pushed 15px past a 414px viewport and made
+ * the whole page swipe sideways. `anywhere` (not `break-word`) so the break
+ * is allowed mid-token, which is the only thing that helps here; it applies
+ * only when the text genuinely does not fit, so short labels are untouched.
+ */
+[id^="m2d-page"] .mantine-Switch-label,
+[id^="m2d-page"] .mantine-Switch-description,
+[id^="m2d-page"] .mantine-Checkbox-label {
+    overflow-wrap: anywhere;
+}
+
+/* The generated prop tables (markdown2dash) pin column widths in m2d.css —
+   200px + 500px of fixed columns is wider than any phone. Let them collapse
+   to content below the point where they stop fitting; the rule above still
+   provides the scroll if the content itself is wider. */
+@media (max-width: 48em) {
+    .m2d-table td:nth-child(1),
+    .m2d-table td:nth-child(3),
+    .m2d-block-kwargs td:nth-child(1),
+    .m2d-block-kwargs td:nth-child(3) {
+        width: auto;
+    }
 }
 
 /* Rank the AppShell sections: the aside under the header, always.

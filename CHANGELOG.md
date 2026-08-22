@@ -18,6 +18,33 @@ metadata fix.
 
 #### Fixed — mobile
 
+- **The home page scrolled sideways on phones.** The prop-mapping table is
+  min-content sized, so with `overflow: visible` it burst out of its column
+  and dragged the document with it: measured at 414px, the table rendered
+  471px inside a 318px container and the page scrolled 105px horizontally, so
+  every paragraph could be swiped off-screen. Markdown tables now scroll
+  inside their own box (`display:block` + `width:max-content` +
+  `max-width:100%` + `overflow-x:auto`) — a no-op above the container width,
+  so desktop is unchanged. `dmc.Table` (which /file-uploads renders, and
+  which has its own scroll container) is explicitly excluded.
+- **/ui-options scrolled sideways too**, by 15px: a Switch labelled
+  `canvasActions.changeViewBackgroundColor` — a dotted identifier with no
+  break opportunity — rendered 309px wide in a 250px box. Control labels in
+  the docs bodies now use `overflow-wrap: anywhere`.
+- **All fifteen pages now measure zero horizontal overflow at 414px.**
+- **Three stylesheet rules targeted Mantine's internal hashed class names**
+  (`.m_46b77525`, `.m_5caae85b`, `.m_9cdde9a`). Those hashes are private,
+  version-unstable build artifacts. Audited against DMC 2.8: `.m_5caae85b`
+  had already gone dead (zero occurrences in the bundle), and `.m_9cdde9a`
+  was putting a stray `margin-top: 15px` on the AppShell aside while
+  re-declaring width, transform and z-index that Mantine already sets. The
+  header-Select rule was rewritten against a stable selector; the other two
+  are gone. This is the failure 2plot_leaflet recorded after a `.m_b8a05bbd`
+  rule — the Drawer content — silently overrode its drawer's docking styles
+  and left that host's mobile navigation floating. A test now fails on any
+  `.m_*` selector in any stylesheet.
+
+
 - **The header wordmark overflowed the row on phones.** `dash-excalidraw` is
   a long mark to sit beside a burger, a 36px logo, a search control and the
   theme toggle. It is now `visibleFrom="xs"` — hidden below 576px (36em),
