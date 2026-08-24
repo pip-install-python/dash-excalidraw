@@ -6,6 +6,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site — floor round (2026-08-23)
+
+Moves to `dash-improve-my-llms >= 2.7.1` and syncs four template fixes from
+dash-documentation-boilerplate 1.6.9-1.6.13.
+
+#### Changed
+
+- **dimll floor 2.6.1 → 2.7.1**, in all six places it is encoded:
+  requirements.txt (the pin and the three commented backend extras), run.py's
+  `LLMS_PKG_FLOOR` and its boot message, and ci.yml's extras install plus both
+  version asserts. 2.7.0 dedups the prerender H1 and the home footer's doubled
+  `/llms.txt` link, and hardens the idempotency probe so a page that merely
+  MENTIONS the marker keeps its prerender; 2.7.1 adds the llms.txt v2
+  discovery relations and Link headers, the `Accept: text/plain` ramp, and the
+  representation digest. **Editing the requirements line is the Docker cache
+  bust** — that layer re-runs only on a byte change, so a `>=` floor can never
+  pull a newer release through a cache hit.
+- **`/healthz` is built per request, from one payload, on every backend.** It
+  was a snapshot closed over at registration — harmless while every field was
+  static and wrong the moment one is not. FastAPI built its own payload
+  *without* `build`, which is the exact field cd.yml's build-match wait polls
+  for, so a FastAPI deploy would have verified whichever release happened to
+  be serving. The payload gains `app` (`SATELLITE_APP_KEY`, else `"unknown"`)
+  and, on dimll >= 2.7.0, `geo` `{configured, denied, resolved}` — counts and
+  flags only, never the denylist's country codes, and omitted rather than
+  error-flagged on older packages.
+- **`_expand_source_directives` is fence-aware.** A `.. source::` inside a
+  fenced block is documentation showing the syntax, not a directive; expanding
+  it injected a fence inside the open fence, closed it early, and rendered the
+  inlined Python as markdown — every `# comment` becoming an `<h1>`. Latent
+  here (no doc teaches the directive yet) and fixed before it could bite.
+- **Dependabot pip version-updates restricted** to `dash*` / `plotly*` /
+  `markdown2dash`. Without the allow-list it proposes floor-raises for every
+  requirement, and those floors encode minimum-compatibility knowledge — the
+  gunicorn floor *is* the CVE fact. Security updates are unaffected; they
+  arrive through a separate channel.
+
+#### Fixed
+
+- **The noscript block carried an `<h1>`, so every page served two.** Crawlers
+  run no JavaScript but do parse `noscript`, making it a second site-wide h1
+  competing with each page's own. Found by the every-page structure pin the
+  moment it was ported. The block now starts at h2.
+
+#### Added
+
+- The every-page structure pin: every non-admin page serves exactly one `<h1>`
+  to a generic client (comments stripped first), no duplicate llms.txt links
+  in the prerender footer, and home carries the root link exactly once.
+- Four healthz contract tests, the fence-awareness test, and the noscript pin.
+- The Dockerfile's cache-semantics block, plus `curl` and a `$PORT`-aware
+  HEALTHCHECK.
+
 ### Site — round-2 pass (2026-08-22)
 
 Follow-ups from the gate-wave review, an outside SEO audit, and the

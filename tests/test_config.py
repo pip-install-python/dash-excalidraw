@@ -371,3 +371,22 @@ def test_long_identifiers_in_control_labels_can_break():
         "control labels can no longer break, so a long identifier will "
         "widen the page again"
     )
+
+
+def test_noscript_block_carries_no_h1():
+    """Crawlers run no JavaScript and PARSE noscript content — an h1 there
+    becomes a second site-wide h1 on every page, competing with each
+    page's own. Found on the llms-2plot-dev fork (2026-08-23), fixed at
+    the source; this pins it. HTML comments are stripped first so the
+    explanatory comment naming the tag can't trip the check."""
+    import re
+    from pathlib import Path
+
+    html = (Path(__file__).resolve().parent.parent / "templates" / "index.html").read_text()
+    html = re.sub(r"<!--.*?-->", "", html, flags=re.S)
+    noscript = re.search(r"<noscript>(.*?)</noscript>", html, re.S)
+    assert noscript, "index.html lost its noscript block?"
+    assert "<h1" not in noscript.group(1), (
+        "the noscript block carries an <h1> — every page now has a second "
+        "site-wide h1 in the crawler's parse; use h2/h3 in this block"
+    )

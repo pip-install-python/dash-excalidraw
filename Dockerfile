@@ -36,8 +36,32 @@ ENV PYTHONUNBUFFERED=1 \
     DASH_BACKEND=flask \
     PORT=8050
 
+# curl only — the HEALTHCHECK below uses it. Deliberately NO nodejs/npm:
+# this image used to apt-install both and `npm install` a package.json whose
+# toolchain is the COMPONENT's build (webpack, TypeScript, the Excalidraw
+# dev tree) and which nothing in the running site touches — the bundle is
+# committed. A docs site is a Python app; a fork that genuinely builds JS in
+# its image adds that toolchain knowingly rather than by inheritance.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
+# CACHE SEMANTICS — read this before shipping a dependency upgrade. The pip
+# layer below re-runs ONLY when vendor/ or requirements.txt BYTES change. A
+# `>=` floor can NEVER pull a newer release through a cache hit: a code-only
+# commit rebuilds the app layers underneath while pip silently keeps whatever
+# version the image was first built with. That has bitten the fleet twice —
+# at 2.6.1 and again at 2.7.1 — and both times the site looked fine, because
+# a stale package degrades quietly rather than failing.
+#
+# So ship every dependency upgrade as a floor bump in requirements.txt, and
+# grep the NUMBER rather than the file: it also lives in run.py's
+# LLMS_PKG_FLOOR and in ci.yml's two asserts. The bump IS the cache bust, and
+# the boot floor turns a stale image from a silent downgrade into a loud
+# refusal to start.
+#
 # Python deps first so this layer caches across app-code changes.
 # vendor/ must come along: requirements.txt installs dash-clerk-auth 1.0.5
 # from a local tarball there (vendored across the 2plot network, not on PyPI).
@@ -59,6 +83,13 @@ COPY . .
 
 # Documentation only; the process binds to $PORT (below).
 EXPOSE 8050
+
+# The 2plot.ai hub's hourly sweep probes /healthz; give the container the same
+# check so an unhealthy process is visible to the orchestrator too. Shell form
+# so ${PORT} expands at runtime — the template's copy hardcodes a port, which
+# would check the wrong one the moment Render assigns its own.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS "http://localhost:${PORT}/healthz" || exit 1
 
 # run:server is the Flask WSGI callable (run.py: `server = app.server`).
 #

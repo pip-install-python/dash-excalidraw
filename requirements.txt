@@ -150,10 +150,30 @@ python-dotenv>=1.0.0
 # pinned index, or any resolver that picks an older compatible release, would
 # silently reinstate the hidden attribute with no test able to see it. State
 # the floor where the guarantee is.
-dash-improve-my-llms[flask]>=2.6.1
-# dash-improve-my-llms[fastapi]>=2.6.1   # Dash 4.4+ FastAPI backend
-# dash-improve-my-llms[quart]>=2.6.1     # Dash 4.4+ Quart backend
-# dash-improve-my-llms[all]>=2.6.1       # all three
+#
+# 2.7.1 is the round-3 floor, and the same rule applies twice over:
+#
+#   2.7.0  dedups the prerender H1 — every page was serving TWO h1s to
+#          crawlers, the injected prerender header plus the doc body's own
+#          markdown H1 — and the home footer's doubled /llms.txt link. It
+#          also hardens the idempotency probe: a page that merely MENTIONS
+#          the prerender marker used to lose its prerender entirely.
+#   2.7.1  adds the llms.txt v2 discovery relations (rel=alternate /
+#          describedby) on both lanes plus Link headers, the
+#          Accept: text/plain ramp, and the representation digest — the
+#          surfaces the network's agent lane composes over.
+#
+# EDITING THIS LINE IS THE DOCKER CACHE BUST, and that is the mechanism
+# rather than a side effect. The image's pip layer re-runs only when these
+# bytes change, so a `>=` floor can never pull a newer release through a
+# cache hit: a code-only commit rebuilds the app layers while pip keeps
+# whatever version the image was first built with. Ship every dependency
+# upgrade as a bump here, and grep the NUMBER rather than the file — it
+# also lives in run.py's LLMS_PKG_FLOOR and in ci.yml's two asserts.
+dash-improve-my-llms[flask]>=2.7.1
+# dash-improve-my-llms[fastapi]>=2.7.1   # Dash 4.4+ FastAPI backend
+# dash-improve-my-llms[quart]>=2.7.1     # Dash 4.4+ Quart backend
+# dash-improve-my-llms[all]>=2.7.1       # all three
 
 # Background callbacks — /ai-agent's model call
 #
