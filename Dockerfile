@@ -14,7 +14,7 @@
 # gate-wave pass; if a future change needs a build step, it belongs in CI
 # producing a committed artifact, not in the runtime image.
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # PYTHONUNBUFFERED        -> stream logs straight to stdout, so Render shows
 #                            them live. Learned on email.2plot.dev: without it
