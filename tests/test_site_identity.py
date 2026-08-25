@@ -449,3 +449,24 @@ def test_code_examples_keep_the_placeholder_syntax_verbatim():
     assert substitute_versions(fenced) == fenced
     inline = "write `{{VERSION:dash}}` in prose"
     assert substitute_versions(inline) == inline
+
+
+def test_the_home_page_substitutes_versions_like_every_docs_page():
+    """pages/home.py and pages/markdown.py must agree on the pipeline.
+
+    markdown.py has run `substitute_versions` over every docs page since the
+    template added it; home.py did not, and this fork carried that asymmetry
+    from fork time until 2026-08-25. It was latent, not live — no home.md
+    here uses a `{{VERSION:...}}` token — but the day one does, the literal
+    token ships on the single most-read machine surface on the site
+    (`/llms.txt` serves home.md verbatim as its opening prose) while every
+    other page resolves correctly. A source pin, because the defect is the
+    ABSENCE of a call and no rendered output can show you an absence.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "pages" / "home.py").read_text()
+    assert "substitute_versions(content" in source, (
+        "pages/home.py no longer runs substitute_versions over home.md — "
+        "version tokens would ship literal on / and /llms.txt"
+    )

@@ -127,7 +127,16 @@ def test_the_default_base_url_matches_the_container_port(battery):
         f"the image's PORT default is not {port}, so a `docker run` with no "
         "-e PORT listens somewhere the battery does not look"
     )
-    assert '--bind "0.0.0.0:${PORT}"' in dockerfile, (
-        "the CMD must bind $PORT — Render assigns the port at runtime and a "
-        "container listening on a hardcoded one never passes its health check"
+    assert f'--bind "0.0.0.0:${{PORT:-{port}}}"' in dockerfile, (
+        f"the CMD must bind ${{PORT:-{port}}} — Render assigns the port at "
+        "runtime and a container listening on a hardcoded one never passes "
+        "its health check, while a BARE ${PORT} collapses the bind to "
+        '"0.0.0.0:" the moment the platform sets the variable to empty. The '
+        "ENV default above covers unset, not set-empty, so the number is "
+        "repeated at the point of use (SYNC-1.6.10-1.6.16 item 5)."
+    )
+    assert f'localhost:${{PORT:-{port}}}/healthz' in dockerfile, (
+        f"the HEALTHCHECK must probe ${{PORT:-{port}}} — the same variable "
+        "with the same default as the bind, or it checks a port nothing is "
+        "listening on and reports an unhealthy container that is fine"
     )

@@ -86,18 +86,25 @@ EXPOSE 8050
 
 # The 2plot.ai hub's hourly sweep probes /healthz; give the container the same
 # check so an unhealthy process is visible to the orchestrator too. Shell form
-# so ${PORT} expands at runtime — the template's copy hardcodes a port, which
-# would check the wrong one the moment Render assigns its own.
+# so the variable expands at runtime, and DEFAULTED AT THE POINT OF USE:
+# `${PORT}` bare reads as the empty string when the platform sets the variable
+# to nothing, and `http://localhost:/healthz` is not a URL — the probe fails
+# forever against a perfectly healthy app. The ENV default above covers unset,
+# not set-empty; these two are the only places the number is used, so they
+# carry it. 8050 is THIS fork's port (the template's number is 8550).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS "http://localhost:${PORT}/healthz" || exit 1
+    CMD curl -fsS "http://localhost:${PORT:-8050}/healthz" || exit 1
 
 # run:server is the Flask WSGI callable (run.py: `server = app.server`).
 #
 # Shell form so ${PORT} and ${WEB_CONCURRENCY} expand when the container
-# starts rather than when it is built. The 120s timeout is not decoration:
+# starts rather than when it is built, with the port defaulted at the point of
+# use for the same set-empty reason the HEALTHCHECK above spells out — a bare
+# ${PORT} collapses the bind to "0.0.0.0:" and gunicorn dies on the address.
+# The 120s timeout is not decoration:
 # /ai-agent and /benchmark call thinking models, and while background
 # callbacks (lib/background.py) hand that work to a forked worker on Linux, a
 # deployment that turns them off with BACKGROUND_CALLBACKS=off runs the
 # generation inside the request — where gunicorn's 30s default would kill it
 # mid-flight and report nothing useful.
-CMD gunicorn run:server --bind "0.0.0.0:${PORT}" --workers "${WEB_CONCURRENCY:-2}" --threads 4 --timeout 120 --access-logfile - --error-logfile -
+CMD gunicorn run:server --bind "0.0.0.0:${PORT:-8050}" --workers "${WEB_CONCURRENCY:-2}" --threads 4 --timeout 120 --access-logfile - --error-logfile -

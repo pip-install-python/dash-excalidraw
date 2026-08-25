@@ -477,3 +477,39 @@ def test_a_broken_local_surface_still_fails_the_deploy(
     monkeypatch.setattr(smoke, "fetch", no_sitemap)
     assert wired.main(BASE) > 0
     assert "FAIL  /sitemap.xml responds 200" in capsys.readouterr().out
+
+
+def test_every_smoke_live_urlopen_passes_the_ssl_context():
+    """Source pin: EVERY urlopen in smoke_live.py must carry
+    context=SSL_CONTEXT.
+
+    Ported from the template's tests/test_auth_wiring.py (SYNC-1.6.10-1.6.16
+    item 7, template 1.6.16) into this fork's shape — there is no
+    test_auth_wiring.py here, and this file is where smoke_live.py's source
+    contract already lives.
+
+    The defect it nets: flexlayout's `post()` shipped its urlopen without the
+    context, so on any Python without OS trust-store integration (macOS — the
+    fleet's whole local-dev half) every request died in the TLS handshake,
+    returned 0, and the battery accused the app of the regression it exists
+    to detect. CI is blind to it (Linux verifies fine) and no wired test can
+    see it (they monkeypatch fetch), so a SOURCE pin is the only net with a
+    mesh this fine.
+
+    This fork's script has one urlopen and no post(), so the pin is green on
+    arrival. It ships anyway: it is the net for the NEXT request helper
+    somebody adds here, which is exactly how the original one got in.
+    """
+    import re
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "scripts" / "smoke_live.py"
+    ).read_text()
+    calls = re.findall(r"urlopen\((?:[^)]|\n)*?\)", source)
+    assert calls, "no urlopen calls found in smoke_live.py — probe rewritten?"
+    naked = [c for c in calls if "context=SSL_CONTEXT" not in c]
+    assert not naked, (
+        f"urlopen without context=SSL_CONTEXT in smoke_live.py: {naked} — "
+        "on macOS this dies in the handshake and reads as missing auth wiring"
+    )

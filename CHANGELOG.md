@@ -6,6 +6,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site — .claude kit adoption (2026-08-25)
+
+Consumes dash-documentation-boilerplate's `sync/SYNC-1.6.10-1.6.16.md` and
+`sync/SYNC-1.6.17-1.6.21.md` at template 1.6.23. Most of the first spec was
+already satisfied by the floor round; what is new is the shipped development
+kit, the machine-readable divergence fence, and four smaller ports.
+
+#### Added
+
+- **`.claude/` is shipped, not ignored.** This repo blanket-ignored the whole
+  folder from its first commit, so the network's behavioral contract, its
+  skills and its settings stayed local to one machine and propagated to
+  nobody who cloned it. `.gitignore` becomes an allow-list (`.claude/*` plus
+  `!CLAUDE.md`, `!settings.json`, `!skills/`); everything else — `agents/`,
+  `rules/`, `scripts/`, `tasks/`, session scratch, `settings.local.json` —
+  stays local. `.claude/CLAUDE.md` keeps this repo's own guide (rewritten:
+  it still described an `app.py` demo and a `pages/` full of showcase files,
+  neither of which has existed since the docs site landed) and gains the
+  template's contract and verification-traps sections byte-verbatim.
+- **`DIVERGENCES.md`**, with seven recorded deliberate differences and the
+  `byte-owned` machine fence the fleet's fan-out honours. The fence is
+  **empty by decision**: this repo carries all four `sync-verbatim` paths
+  byte-verbatim and intends to keep receiving them mechanically.
+- **`tests/test_claude_kit.py`**, byte-verbatim from the template — pins the
+  kit shippable, case-correct, and pointed at *this* host rather than the
+  template's.
+- **CI asserts Docker's own health verdict** (`docker inspect
+  .State.Health.Status`), failing on `none`. The external curl proves the app
+  answers; it says nothing about the HEALTHCHECK instruction, which is what
+  an orchestrator actually reads — emojimart shipped a broken probe silently
+  while every external check stayed green.
+- Source pins for two absences no rendered output can show: every `urlopen`
+  in `scripts/smoke_live.py` carries `context=SSL_CONTEXT`, and
+  `pages/home.py` runs `substitute_versions` over `home.md`.
+
+#### Changed
+
+- **`X402-SYNC-REPORT.md` is untracked** (kept on disk). Session working
+  documents are local by convention network-wide; two public fleet repos
+  were caught tracking theirs. `DEPLOY-READINESS.md` deliberately stays
+  tracked — it is an owner deliverable and names no values (DIVERGENCES §4).
+- **The auth-gate teaser demo points at this site.** `lib/auth_demos.py`
+  still carried the template's `/examples/visualization` ->
+  `docs.data-visualization.basic_chart` entry: no such page, no such module.
+  `build_demo` swallows import errors by design and the endpoint was never a
+  page here, so not even its warning ever fired — every gate card on the site
+  quietly rendered the demo-less variant. Rekeyed to `/ai-agent` (one of the
+  two pages this site hard-gates in frontmatter) showing the basic canvas.
+  Deliberately **not** the AI agent module: that page's buttons call paid
+  thinking models, and a live model call inside an unauthenticated sign-in
+  card is an open invoice.
+- **The Dockerfile defaults the port at the point of use** —
+  `${PORT:-8050}` in both `CMD` and `HEALTHCHECK`. The `ENV` default covers
+  *unset*, not *set-empty*; a bare `${PORT}` collapses the bind to
+  `"0.0.0.0:"` and points the probe at `http://localhost:/healthz`.
+- **CD is sized for the worst build**: the build-match wait goes 60 → 100
+  iterations and the job timeout 20 → 30 minutes, because a floor bump busts
+  the pip cache by design and this pipeline's most important deploy is
+  therefore Render's slowest. A missing deploy hook now emits `::warning`
+  rather than `::notice` — the quiet notice is why "nothing deployed at all"
+  took a whole run to see on dash-email.
+- **`pages/markdown.py` and `lib/page_visibility.py` regain byte-identity
+  with the template**, which adds `published_name()`: the site brand is what
+  a root page publishes to agents, so the llms preamble and the injected
+  prerender header agree and 2.7.0's H1 dedup can fire. A no-op here (no
+  docs page registers `/`) and taken anyway, to remove the drift point.
+- **`lib/gate_layouts.py` keeps "and the AI assistant"**, against the
+  template's 1.6.16 retirement. That fix's premise — no fork wires one — is
+  false here: `docs/ai-agent` is a real page at `tier: auth`. Ported as the
+  item's contract (*the gate card promises only what ships*) with a test that
+  goes red if the page's tier ever opens.
+
 ### Site — floor round (2026-08-23)
 
 Moves to `dash-improve-my-llms >= 2.7.1` and syncs four template fixes from

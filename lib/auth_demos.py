@@ -31,13 +31,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 DEMOS: dict[str, dict] = {
-    # The template ships ONE working entry so every fork sees the pattern
-    # live: gate /examples/visualization (control board or `tier: auth`
-    # frontmatter) and its sign-in card renders this chart above the
-    # "Authentication required" copy. Swap in your own hero example.
-    "/examples/visualization": {
-        "module": "docs.data-visualization.basic_chart",
-        "caption": "Live theme-aware chart",
+    # This fork's hero. It replaces the template's shipped example, which
+    # named /examples/visualization -> docs.data-visualization.basic_chart —
+    # a page and a module that exist in the template and in NO fork. Carried
+    # here verbatim at fork time, it meant every gate card on this site
+    # rendered the plain demo-less variant and the funnel's whole teaser
+    # mechanism was dead: build_demo() degrades silently by design, and the
+    # endpoint was never a page here, so not even its warning ever fired
+    # (found 2026-08-25, kit-adoption round; template-class — check yours).
+    #
+    # /ai-agent is the right key because it is one of only two pages this
+    # site hard-gates in frontmatter (`tier: auth`, with /benchmark), so it
+    # is a card a signed-out visitor can actually reach while the site ships
+    # DARK. The MODULE is deliberately NOT docs.ai-agent.ai_agent: that
+    # page's buttons call paid thinking models, and a live model call inside
+    # an unauthenticated sign-in card is an open invoice. The basic canvas
+    # is the honest taste — the component itself, fully interactive, free.
+    "/ai-agent": {
+        "module": "docs.basic-usage.basic",
+        "caption": "Live Excalidraw canvas — draw on it",
         "max_height": 420,
     },
 }

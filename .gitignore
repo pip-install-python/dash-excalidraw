@@ -1,10 +1,34 @@
 # =====================================================================
 # Claude Code
 # =====================================================================
-# The whole folder stays local. It holds agent definitions, skills, the
-# housekeeper's scratchpad and machine-local settings — none of which are
-# part of the published component or the docs site.
-.claude/
+# The .claude/ development kit IS shipped — it is how a clone of this repo
+# inherits the 2plot network's behavioral contract, skills, and settings
+# (template 1.6.15, the F1 fabric build). This repo blanket-ignored the whole
+# folder from its first commit, which is why the contract stayed local-only:
+# nothing here propagated to anyone who cloned it.
+#
+# Allow-list, not blanket ignore — a dir-level ignore cannot be re-included
+# beneath it, hence the /* form. Everything NOT listed stays local: this
+# repo's own agents/, rules/, scripts/, tasks/, support_files/, context.md,
+# the setup script, session scratch, screenshots, and settings.local.json
+# (per-seat model and hook overrides).
+.claude/*
+!.claude/CLAUDE.md
+!.claude/settings.json
+!.claude/skills/
+
+# Session working documents are LOCAL BY CONVENTION, network-wide: sync
+# reports, handoffs and kickoff briefs name hosts, topology and process. Two
+# public fleet repos were caught tracking theirs (2026-08-24). This repo was
+# one of them — X402-SYNC-REPORT.md was tracked from the gate-wave pass until
+# the kit-adoption round untracked it, 2026-08-25.
+#
+# DEPLOY-READINESS.md is deliberately NOT in this list and stays tracked: it
+# is an owner deliverable naming variable NAMES and dashboard STEPS, never a
+# value. Recorded in DIVERGENCES.md.
+X402-SYNC-REPORT.md
+HANDOFF-*.md
+KICKOFF-*.md
 
 # =====================================================================
 # Python

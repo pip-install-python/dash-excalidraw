@@ -103,3 +103,74 @@ def test_the_gate_card_names_the_sign_in_destination(app_module, monkeypatch):
     assert "https://example.test/in" in str(gate_layouts.sign_in_layout("P"))
     monkeypatch.setattr(access, "sign_in_url", lambda: None)
     assert "https://2plot.ai" in str(gate_layouts.sign_in_layout("P"))
+
+
+def test_every_registered_teaser_demo_actually_resolves(app_module):
+    """The template's demo table is fork cargo, and it fails SILENTLY.
+
+    `build_demo` swallows every import error by design (a broken example must
+    not take down the funnel), and the warning it logs only fires when the
+    card for that endpoint renders — which never happens if the endpoint is
+    not a page here. This fork shipped the template's
+    /examples/visualization -> docs.data-visualization.basic_chart entry from
+    fork time until 2026-08-25: no page, no module, no warning, and every
+    gate card on the site quietly rendering the demo-less variant.
+
+    So pin both halves: the endpoint is a real page, and the module imports
+    and exposes `component`.
+    """
+    import importlib
+
+    from dash import page_registry
+
+    from lib import auth_demos
+
+    endpoints = {page["path"] for page in page_registry.values()}
+    for path, spec in auth_demos.DEMOS.items():
+        assert path in endpoints, (
+            f"auth-gate demo registered for {path!r}, which is not a page on "
+            f"this site — the card can never render it. Known: {sorted(endpoints)}"
+        )
+        module = importlib.import_module(spec["module"])
+        assert hasattr(module, "component"), (
+            f"{spec['module']} has no module-level `component` — build_demo "
+            "returns None and the teaser is dead"
+        )
+
+
+def test_the_gate_card_promises_only_what_this_site_ships(app_module):
+    """SYNC-1.6.10-1.6.16 item 9, ported as its CONTRACT rather than its fix.
+
+    The template retired "and the AI assistant" from the demo-branch intro
+    because no fork wired one, and a gate card selling a feature that does
+    not exist spends the network's credibility at its highest-intent moment.
+    THIS fork wires one: docs/ai-agent (`endpoint: /ai-agent`) is a real page
+    and its frontmatter says `tier: auth`, so an account genuinely unlocks
+    it. The copy stays, and this pin is what keeps it earned — delete the
+    page, or open its tier, and the promise becomes a lie with a red test
+    attached. Recorded in DIVERGENCES.md.
+    """
+    import re
+    from pathlib import Path
+
+    import frontmatter
+
+    source = (Path(__file__).resolve().parent.parent / "lib" / "gate_layouts.py").read_text()
+    # Comments stripped first: the template's own fix names the phrase it
+    # retired IN a comment, so a raw grep answers wrong in both directions
+    # (emojimart's spec correction, 2026-08-24).
+    code = re.sub(r"^\s*#.*$", "", source, flags=re.M)
+    if "the AI assistant" not in code:
+        return  # the template's string; nothing to earn
+
+    gated = {
+        post.metadata.get("endpoint"): post.metadata.get("tier")
+        for md in (Path(__file__).resolve().parent.parent / "docs").glob("*/*.md")
+        for post in [frontmatter.loads(md.read_text())]
+    }
+    assert gated.get("/ai-agent") == "auth", (
+        "lib/gate_layouts.py promises 'the AI assistant' behind the sign-in "
+        "gate, but docs/ai-agent is not `tier: auth` on this site "
+        f"(tier={gated.get('/ai-agent')!r}). Either gate the page or retire "
+        "the phrase, as the template did."
+    )

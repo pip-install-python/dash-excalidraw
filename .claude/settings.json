@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "opus",
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:excalidraw.2plot.dev)",
+      "WebFetch(domain:2plot.ai)",
+      "WebFetch(domain:2plot.dev)"
+    ],
+    "deny": [
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.config/gh/hosts.yml)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.netrc)"
+    ],
+    "ask": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Bash(git push *)",
+      "Bash(npm publish *)",
+      "Bash(gh release *)",
+      "Bash(twine upload *)",
+      "Bash(python -m twine *)",
+      "Bash(docker push *)",
+      "Bash(render *)"
+    ],
+    "defaultMode": "auto"
+  },
+  "env": {
+    "PYTHONUNBUFFERED": "1",
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1"
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": false,
+    "network": {
+      "allowLocalBinding": true,
+      "allowedDomains": [
+        "excalidraw.2plot.dev",
+        "2plot.ai",
+        "2plot.dev",
+        "api.github.com",
+        "pypi.org",
+        "files.pythonhosted.org"
+      ]
+    },
+    "filesystem": {
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.gnupg",
+        "~/.netrc",
+        "~/.docker"
+      ]
+    },
+    "excludedCommands": [
+      "docker *",
+      "docker-compose *",
+      "git *"
+    ]
+  }
+}
