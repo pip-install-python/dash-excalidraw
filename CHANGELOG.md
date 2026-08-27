@@ -46,9 +46,15 @@ addenda. Nothing here touches the component half.
 #### Added
 
 - **`tests/test_python_version.py`** — the encodings-agreement pins, adapted
-  for a repo that carries two Pythons legitimately. Reads the workflows as
-  parsed YAML rather than by grep, so a version number quoted in a comment
-  can neither satisfy a pin nor defeat one.
+  for a repo that carries two Pythons legitimately. Scoped BY JOB NAME
+  rather than by file, because the template's reference greps a whole
+  workflow and this is the first repo in the fleet with a lane that file
+  explicitly disclaims; `test_every_job_declaring_a_python_is_classified` is
+  the guard on the guard, so a job nobody classified fails loudly instead of
+  going quietly unread. Workflows are hand-parsed with comments stripped —
+  not via PyYAML, which this site never declares (it arrives only as a
+  transitive of `python-frontmatter`, and a pin that dies of ImportError the
+  day an upstream swaps YAML libraries has stopped pinning).
 - **An SSL context on `scripts/network_smoke.py`'s `urlopen`**, with a source
   pin beside `smoke_live.py`'s. This makes the battery's trust store a
   declared dependency (`certifi`, already required) rather than whatever CA

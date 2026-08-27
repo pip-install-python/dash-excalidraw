@@ -159,7 +159,10 @@ whose whole purpose is measuring it.
 "restore" it to the fleet Python. Item 5's own contract anticipates this
 fork's shape ("a fork adapting this file scopes the greps to its site-lane
 jobs"); the scoping lives in `tests/test_python_version.py`'s
-`PACKAGE_MEASURED_JOB`.
+`SITE_LANE_JOBS` / `PACKAGE_LANE_JOBS`, BY JOB NAME rather than by file,
+with `test_every_job_declaring_a_python_is_classified` as the guard on the
+guard — job-scoping means an unlisted job is simply not read, which is right
+for the package matrix and wrong for a job somebody forgot to classify.
 
 ### 9. `scripts/network_smoke.py` carries an SSL context the template's does not
 
