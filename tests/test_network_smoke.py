@@ -154,17 +154,22 @@ def test_every_network_smoke_urlopen_passes_the_ssl_context():
     """Source pin: EVERY urlopen in network_smoke.py carries
     context=SSL_CONTEXT.
 
-    The sibling of tests/test_smoke_live.py's pin, and added for a defect
-    measured on this seat: stdlib on macOS ships no OS trust-store
-    integration, so a naked urlopen dies in the TLS handshake, burns all
-    three retry attempts on it, and the battery reports a healthy production
-    host as DOWN. CI cannot see it (Linux verifies fine) and no wired test
-    can (they monkeypatch `fetch`), so a SOURCE pin is the only net with a
-    mesh this fine.
+    The sibling of tests/test_smoke_live.py's pin. What it holds is that the
+    battery's trust store stays a DECLARED dependency — certifi, already in
+    requirements.txt — rather than whatever CA bundle the running
+    interpreter's OpenSSL was built against, which varies across dev seats,
+    runners and minimal images.
 
-    This is one of the two places the fleet's battery reads a live host, and
-    it was the one still naked — the template's own copy at 1.6.29 has the
-    same gap, filed upward with this round's report.
+    Scoped honestly: the flexlayout defect that motivated smoke_live.py's
+    context (a naked post() dying in the handshake and reading as missing
+    auth wiring) did NOT reproduce for this file on the seat that added it —
+    measured 2026-08-27 against production, 10/10 with the context and 10/10
+    without, on both this repo's venv and a bare 3.14. The pin is here
+    because no wired test can see a missing context (they monkeypatch
+    `fetch`) and CI never will (Linux verifies fine), so if the failure mode
+    does arrive, a source pin is the only net with a mesh this fine. The
+    template's own copy at 1.6.29 is still naked; filed upward with this
+    round's report.
     """
     source = (REPO_ROOT / "scripts" / "network_smoke.py").read_text()
     calls = re.findall(r"urlopen\((?:[^)]|\n)*?\)", source)

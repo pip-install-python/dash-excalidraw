@@ -50,10 +50,14 @@ addenda. Nothing here touches the component half.
   parsed YAML rather than by grep, so a version number quoted in a comment
   can neither satisfy a pin nor defeat one.
 - **An SSL context on `scripts/network_smoke.py`'s `urlopen`**, with a source
-  pin beside `smoke_live.py`'s. Without it, stdlib on macOS — which ships no
-  OS trust-store integration — dies in the TLS handshake, burns the retry
-  ladder, and the battery reports a healthy production host as DOWN. The
-  template's copy of this file has the same gap; filed upward.
+  pin beside `smoke_live.py`'s. This makes the battery's trust store a
+  declared dependency (`certifi`, already required) rather than whatever CA
+  bundle the running interpreter was built against. Stated plainly because
+  the drop's rationale was stronger: the "reads a healthy host as down from a
+  Mac" symptom did NOT reproduce on this seat — measured both ways against
+  production, 10/10 either way — so this ships as parity with
+  `smoke_live.py`, not as a fix for an observed outage. The template's copy
+  has the same gap; filed upward with the correction attached.
 - `tests/test_smoke_live.py` gains the legacy-stub guard, and its
   foreign-canonical stub now DERIVES the rewrite host from `BASE_URL`
   instead of spelling it — a literal that happened to be right on this fork

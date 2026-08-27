@@ -167,12 +167,20 @@ The fork's `fetch()` builds a certifi-backed `ssl.SSLContext` and passes it
 to `urlopen`; template 1.6.29's copy of the same file does not, and calls
 `urlopen(req, timeout=timeout)` naked.
 
-**Why:** stdlib on macOS ships no OS trust-store integration, so a naked
-`urlopen` dies in the TLS handshake, burns all three retry attempts on it,
-and the battery reports a healthy production host as DOWN. `smoke_live.py`
-has carried a context since flexlayout found this in the F1 kit adoption
-(`154688e`); `network_smoke.py` is the fleet's OTHER live-host reader and
-was still naked. `tests/test_network_smoke.py::
+**Why:** parity and determinism, NOT a measured outage — and the difference
+matters, so it is written down. The drop that asked for this change said a
+naked `urlopen` "reads a healthy host as down from a Mac"; that symptom did
+NOT reproduce on this seat (2026-08-27, measured both ways against
+production: the default context verifies with 128 CAs inside this repo's
+venv and 191 on a bare homebrew 3.14, and the battery passed 10/10 with the
+context stripped). What the context buys is that the trust store becomes a
+DECLARED dependency — `certifi`, already in `requirements.txt` — instead of
+whatever CA bundle the running interpreter's OpenSSL happened to be built
+against, which varies across dev seats, runners and minimal images.
+`smoke_live.py` has carried exactly this context since flexlayout found the
+naked-`post()` case in the F1 kit adoption (`154688e`); `network_smoke.py`
+is the fleet's OTHER live-host reader and was the one still naked.
+`tests/test_network_smoke.py::
 test_every_network_smoke_urlopen_passes_the_ssl_context` is the source pin.
 
 **Status:** AHEAD of the template, not divergent from it by intent — filed
