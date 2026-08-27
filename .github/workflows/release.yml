@@ -41,8 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           # The fleet Python (SYNC-1.6.22-1.6.29 item 5). Singleton literals
           # are choices, not measurements: the only Python here that MEASURES
@@ -72,15 +72,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           # The fleet Python (SYNC-1.6.22-1.6.29 item 5). Singleton literals
           # are choices, not measurements: the only Python here that MEASURES
           # anything is ci.yml's `package-python-range` matrix, which tests
           # pyproject's `requires-python` claim against the built wheel.
           python-version: "3.14"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
 
@@ -103,7 +103,7 @@ jobs:
           python -m build
           python -m twine check dist/*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -124,7 +124,7 @@ jobs:
       # Without it trusted publishing fails with an opaque 403.
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
@@ -148,8 +148,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
@@ -167,7 +167,7 @@ jobs:
           fi
           cat release-notes.md
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           body_path: release-notes.md
           files: dist/*

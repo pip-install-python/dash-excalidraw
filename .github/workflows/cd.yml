@@ -132,8 +132,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           # SITE lane, and the seat that leaves the battery's
           # python_matches_declared check ARMED: here the interpreter under
