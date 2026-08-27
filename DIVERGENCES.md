@@ -122,6 +122,64 @@ only what ships* — rather than as its string fix, and
 is what keeps the promise earned: open the page's tier or delete the page
 and the test goes red.
 
+
+### 8. `ci.yml` carries TWO Pythons, and only one of them is the fleet's
+
+`SYNC-1.6.22-1.6.29` item 5 puts ONE Python everywhere it is encoded. This
+repo encodes two, deliberately, because it is two things in one tree
+(divergence 1):
+
+- the **site lane** — `lint`, `test`, `docs-compat`, `docker`, `pip-audit`,
+  `cd.yml`'s verify, and both `release.yml` singletons — is the fleet Python,
+  3.14, sourced from the Dockerfile's `FROM` tag. That is the interpreter a
+  visitor's request actually runs on.
+- the **package lane** — `package-python-range` — is 3.9-3.13, and must NOT
+  be the fleet Python. It installs the built wheel on every interpreter
+  `pyproject.toml` advertises, which is the only thing that makes
+  `requires-python = ">=3.9"` a measurement instead of a claim. Pinning it to
+  a container base would fail the moment the image moved and would delete a
+  promise this repo publishes on PyPI.
+
+The line is drawn by what each number MEASURES: a singleton
+`python-version:` literal measures nothing — it is a choice, and a divergent
+choice is exactly the 3.11.8/3.12/3.12.0 drift the item exists to kill — so
+every literal in all three workflows is the fleet Python, the wheel-build
+jobs included (the wheel is `py3-none-any`). `package-python-range`'s matrix
+is the one place a Python asserts something about the world, so
+`tests/test_python_version.py` checks it against `pyproject.toml`'s
+classifiers rather than against the image.
+
+**Why the site window's floor moved 3.10 → 3.12:** the item holds the
+compat window three wide around the fleet minor, and this fork's 3.10 leg
+was documented as "the docs site's Python floor". Nothing was lost by
+retiring it — the package's 3.9/3.10 support is still measured, by the job
+whose whole purpose is measuring it.
+
+**What a sync must not do:** read `3.9`-`3.13` in `ci.yml` as drift and
+"restore" it to the fleet Python. Item 5's own contract anticipates this
+fork's shape ("a fork adapting this file scopes the greps to its site-lane
+jobs"); the scoping lives in `tests/test_python_version.py`'s
+`PACKAGE_MEASURED_JOB`.
+
+### 9. `scripts/network_smoke.py` carries an SSL context the template's does not
+
+The fork's `fetch()` builds a certifi-backed `ssl.SSLContext` and passes it
+to `urlopen`; template 1.6.29's copy of the same file does not, and calls
+`urlopen(req, timeout=timeout)` naked.
+
+**Why:** stdlib on macOS ships no OS trust-store integration, so a naked
+`urlopen` dies in the TLS handshake, burns all three retry attempts on it,
+and the battery reports a healthy production host as DOWN. `smoke_live.py`
+has carried a context since flexlayout found this in the F1 kit adoption
+(`154688e`); `network_smoke.py` is the fleet's OTHER live-host reader and
+was still naked. `tests/test_network_smoke.py::
+test_every_network_smoke_urlopen_passes_the_ssl_context` is the source pin.
+
+**Status:** AHEAD of the template, not divergent from it by intent — filed
+upward with this round's report as a template-class finding. A sync must not
+restore the naked `urlopen`; when the template adopts the context, this entry
+retires.
+
 ## Retired
 
 *(none yet — retirements are marked here, not deleted, so that older
@@ -140,13 +198,30 @@ path here" — present so the absence is a statement. When the block
 exists it is authoritative; a fork without it gets the conservative
 mention heuristic (over-flags, never restores).
 
-Audited 2026-08-25 against the two live specs' `sync-verbatim` blocks,
-whose union is `.claude/skills/{wire-verify,sync-template,report}/SKILL.md`
-and `tests/test_claude_kit.py`. This fork carries all four **byte-verbatim
-from the template** and intends to keep receiving them mechanically —
-divergence 2 above makes a byte-level claim on `.claude/CLAUDE.md`, which
-is not a `sync-verbatim` path and therefore not an entry here. The block is
-empty by decision, not by omission.
+RE-AUDITED 2026-08-26 against all three live specs at template 1.6.29,
+whose `sync-verbatim` union is now SIX paths — the four from the 1.6.23
+audit plus `.github/dependabot.yml` (1.6.24) and `tests/test_auth_demos.py`
+(1.6.26). Path by path:
+
+- the three `.claude/skills/*/SKILL.md` and `tests/test_claude_kit.py`:
+  byte-identical to template 1.6.23, which is where this fork took them.
+  `report/SKILL.md` and `test_claude_kit.py` differ from template HEAD only
+  because the TEMPLATE moved at 1.6.28 — this fork has not touched either
+  byte, so both are the template's to update mechanically.
+- `.github/dependabot.yml`: this fork carries the pre-1.6.24 template
+  version, unmodified. It has NO npm block (the component half's
+  `package.json` is not under dependabot here), so unlike leaflet there is
+  nothing of this fork's to protect — the 1.6.24 rewrite is the fan-out's to
+  deliver.
+- `tests/test_auth_demos.py`: absent here, and its `# requires:`
+  gate (`lib/auth_demos.py`) is satisfied, so the fan-out will deliver it.
+  Its two fork-owned seams are in step — `DEMOS` is `endpoint -> {"module":
+  ...}` and `conftest.py` exposes `app_module` — so it lands green rather
+  than as interface drift.
+
+Divergence 2 makes a byte-level claim on `.claude/CLAUDE.md`, which is not a
+`sync-verbatim` path and therefore not an entry here; divergence 9's file is
+not one either. The block is empty by decision, not by omission.
 
 ```yaml byte-owned
 ```

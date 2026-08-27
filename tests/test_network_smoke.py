@@ -65,6 +65,14 @@ def wired(battery, client, monkeypatch):
 
     monkeypatch.setattr(battery, "fetch", fetch)
     monkeypatch.setattr(battery, "_RESULTS", [])
+    # No declaration in the in-process seat: here the "host" serves from the
+    # suite's own interpreter, which on the matrix's window legs (3.13/3.12)
+    # is deliberately not the fleet Python. The python_matches_declared
+    # check still proves the field EXISTS; holding the artifact to the
+    # Dockerfile's minor is the container and production seats' job, and
+    # ci.yml's gunicorn boot step stands the check down the same way with
+    # SMOKE_PYTHON_DECLARED=ignore.
+    monkeypatch.setattr(battery, "declared_python_minor", lambda: None)
     battery.seen_agents = seen_agents
     return battery
 
@@ -139,4 +147,30 @@ def test_the_default_base_url_matches_the_container_port(battery):
         f"the HEALTHCHECK must probe ${{PORT:-{port}}} — the same variable "
         "with the same default as the bind, or it checks a port nothing is "
         "listening on and reports an unhealthy container that is fine"
+    )
+
+
+def test_every_network_smoke_urlopen_passes_the_ssl_context():
+    """Source pin: EVERY urlopen in network_smoke.py carries
+    context=SSL_CONTEXT.
+
+    The sibling of tests/test_smoke_live.py's pin, and added for a defect
+    measured on this seat: stdlib on macOS ships no OS trust-store
+    integration, so a naked urlopen dies in the TLS handshake, burns all
+    three retry attempts on it, and the battery reports a healthy production
+    host as DOWN. CI cannot see it (Linux verifies fine) and no wired test
+    can (they monkeypatch `fetch`), so a SOURCE pin is the only net with a
+    mesh this fine.
+
+    This is one of the two places the fleet's battery reads a live host, and
+    it was the one still naked — the template's own copy at 1.6.29 has the
+    same gap, filed upward with this round's report.
+    """
+    source = (REPO_ROOT / "scripts" / "network_smoke.py").read_text()
+    calls = re.findall(r"urlopen\((?:[^)]|\n)*?\)", source)
+    assert calls, "no urlopen calls found in network_smoke.py — probe rewritten?"
+    naked = [c for c in calls if "context=SSL_CONTEXT" not in c]
+    assert not naked, (
+        f"urlopen without context=SSL_CONTEXT in network_smoke.py: {naked} — "
+        "on macOS this dies in the handshake and reads as a host that is down"
     )

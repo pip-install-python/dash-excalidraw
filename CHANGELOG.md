@@ -6,6 +6,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site — one fleet Python, and the live tools grow their contracts (2026-08-26)
+
+Consumes dash-documentation-boilerplate's `sync/SYNC-1.6.22-1.6.29.md`
+items 5 and 6 at template 1.6.29 (`5589318`), plus the fork drop's two
+addenda. Nothing here touches the component half.
+
+#### Changed
+
+- **The image, the workflows and `/healthz` now name ONE Python: 3.14.**
+  The production image was `python:3.12-slim`; the site-lane CI matrix said
+  3.12; nothing on the wire could contradict either, because `/healthz`
+  carried no `python` field at all. It does now
+  (`platform.python_version()`, one builder for both backends), and
+  `scripts/network_smoke.py` gained the `python_matches_declared` check that
+  holds the SERVING interpreter to the Dockerfile's `FROM` minor. A missing
+  field is NOT-ADOPTED rather than not-applicable: emojimart's image moved
+  to 3.14 through dependabot alone, so the cheap half of the detect passed
+  while the expensive half failed invisibly.
+- **The site's compat window is 3.14 / 3.13 / 3.12** (was 3.12 / 3.13 with a
+  3.10 floor leg). The package's own 3.9-3.13 claim is untouched — it is
+  measured by `package-python-range`, against the built wheel, which is
+  where `requires-python` is actually a promise. `render.yaml` needed no
+  change and is now pinned that way: on a `runtime: docker` service
+  `PYTHON_VERSION` must be ABSENT, because nothing reads it there and a
+  string that looks like the platform's setting and can never be true is the
+  same defect class arriving through its own fix.
+- **`scripts/smoke_live.py` is byte-current with template 1.6.29**, which
+  brings two behaviours this fork lacked: the auth-wiring probe (`POST
+  /api/auth/{session,signout}` must not answer 0/404/405 when the served
+  shell carries the Clerk bootstrap — the flexlayout defect, where
+  `register()` runs without `configure_app(app)` and every server render
+  reads signed-out while the UI looks signed in), and a `wake()` that
+  tolerates a legacy `fetch` stub instead of taking a fork's whole suite
+  down. Measured against production before shipping: the shell carries the
+  bootstrap, `/api/auth/session` answers 401 and `/api/auth/signout` 200, so
+  the probe is armed here and green.
+
+#### Added
+
+- **`tests/test_python_version.py`** — the encodings-agreement pins, adapted
+  for a repo that carries two Pythons legitimately. Reads the workflows as
+  parsed YAML rather than by grep, so a version number quoted in a comment
+  can neither satisfy a pin nor defeat one.
+- **An SSL context on `scripts/network_smoke.py`'s `urlopen`**, with a source
+  pin beside `smoke_live.py`'s. Without it, stdlib on macOS — which ships no
+  OS trust-store integration — dies in the TLS handshake, burns the retry
+  ladder, and the battery reports a healthy production host as DOWN. The
+  template's copy of this file has the same gap; filed upward.
+- `tests/test_smoke_live.py` gains the legacy-stub guard, and its
+  foreign-canonical stub now DERIVES the rewrite host from `BASE_URL`
+  instead of spelling it — a literal that happened to be right on this fork
+  is luck, not a property, and the vacuous-pass mode it invites is what the
+  template's 1.6.8 hardening exists for.
+
+#### Divergences recorded
+
+- **8** — `ci.yml`'s two Pythons: the site lane is the fleet's, the package
+  lane is `pyproject.toml`'s, and a sync must not "restore" the latter.
+- **9** — `network_smoke.py`'s SSL context, which is ahead of the template
+  rather than divergent from it; the entry retires when the template adopts
+  it.
+
 ### Site — .claude kit adoption (2026-08-25)
 
 Consumes dash-documentation-boilerplate's `sync/SYNC-1.6.10-1.6.16.md` and

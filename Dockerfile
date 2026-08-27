@@ -14,7 +14,13 @@
 # gate-wave pass; if a future change needs a build step, it belongs in CI
 # producing a committed artifact, not in the runtime image.
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim
+# The fleet Python: ONE minor across the image, the site-lane CI matrix,
+# render.yaml and /healthz's `python` field (SYNC-1.6.22-1.6.29 item 5, at
+# template 1.6.29). It is a MINOR tag on purpose — a `3.X.Y-slim` pin never
+# receives a 3.X security release, which is the bug, not the precision. The
+# encodings are held together by tests/test_python_version.py and, on the
+# wire, by the battery's `python_matches_declared` check.
+FROM python:3.14-slim
 
 # PYTHONUNBUFFERED        -> stream logs straight to stdout, so Render shows
 #                            them live. Learned on email.2plot.dev: without it

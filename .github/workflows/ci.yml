@@ -72,7 +72,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # SITE lane, held to the image's minor (the fleet Python).
+          python-version: "3.14"
           cache: pip
       - run: pip install flake8
       - name: flake8
@@ -104,14 +105,22 @@ jobs:
         # FastAPI is run.py's local default, so both need coverage. The
         # before_request ordering that makes bot_hits countable is a WSGI
         # concern, which is exactly why Flask cannot be the only backend here.
-        python: ["3.12"]
+        python: ["3.14"]
         backend: [flask, fastapi]
         include:
-          # The docs site's Python floor and ceiling, on the default backend.
-          # 3.10 is the floor: python-frontmatter 1.3 imports typing.TypeGuard.
-          - python: "3.10"
-            backend: flask
+          # ...and the two adjacent minors keep the SITE compat window three
+          # wide on the default backend. 3.14 is the fleet Python and what
+          # the production image serves (Dockerfile FROM, same minor —
+          # tests/test_python_version.py pins the two together), which the
+          # old main never tested: it said 3.12 while the image said 3.12
+          # only by luck and the field that could contradict it did not
+          # exist. The window's FLOOR moved 3.10 -> 3.12 with the main: the
+          # package's own 3.9-3.13 claim is measured by
+          # `package-python-range` below, which is where a low-Python floor
+          # is actually a promise this repo makes.
           - python: "3.13"
+            backend: flask
+          - python: "3.12"
             backend: flask
     steps:
       - uses: actions/checkout@v4
@@ -174,6 +183,13 @@ jobs:
 
       - name: Boot under a production server
         if: matrix.backend == 'flask'
+        env:
+          # This gunicorn runs the LEG's interpreter (3.13/3.12 on the include
+          # rows), which is off-contract for the battery's
+          # python_matches_declared check by design, so it stands down here.
+          # The docker job below and CD's verify leave it armed: there the
+          # interpreter IS the artifact.
+          SMOKE_PYTHON_DECLARED: ignore
         run: |
           gunicorn run:server -b 127.0.0.1:8050 --daemon --access-logfile - --error-logfile -
           for _ in $(seq 1 30); do
@@ -210,15 +226,24 @@ jobs:
         # requirements.txt is stricter still (`dash~=4.4.1`). These legs
         # prove headroom below the pin, which is what makes raising it a
         # decision instead of a leap.
-        dash: ["4.2.0", "4.3.0", "4.4.1"]
-        python: ["3.12"]
+        dash: ["4.4.1"]
+        python: ["3.14"]
         include:
-          # The docs-site Python range, against the current Dash. A full
-          # cross-product would be 16 jobs for very little extra signal.
-          - dash: "4.4.1"
-            python: "3.10"
+          # The older-Dash legs stay on a WINDOW LEG (3.12), never the main:
+          # each include row varies ONE axis, so a red always names its own
+          # cause. Dash 4.2/4.3 predate the fleet Python by a year — pairing
+          # them with 3.14 would measure that pairing, not the headroom below
+          # the pin, which is the only thing these rows exist to measure.
+          - dash: "4.2.0"
+            python: "3.12"
+          - dash: "4.3.0"
+            python: "3.12"
+          # ...and the site's Python window against the current Dash. A full
+          # cross-product would be 12 jobs for very little extra signal.
           - dash: "4.4.1"
             python: "3.13"
+          - dash: "4.4.1"
+            python: "3.12"
     steps:
       - uses: actions/checkout@v4
 
@@ -420,7 +445,12 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # The wheel is py3-none-any and check_release.py is stdlib, so the
+          # interpreter here is a CHOICE, not a measurement — and a choice
+          # that differs from the fleet Python is the drift this repo just
+          # spent a round removing. The package's real Python claim is
+          # measured by `package-python-range` below, against the wheel.
+          python-version: "3.14"
 
       - name: Release consistency
         # Version drift across pyproject / package.json / package-info.json,
@@ -612,7 +642,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # SITE lane: it audits requirements.txt, the site's own tree.
+          python-version: "3.14"
       - run: pip install pip-audit
       # Skip local vendor/ paths — pip-audit can only assess PyPI dists.
       - run: |

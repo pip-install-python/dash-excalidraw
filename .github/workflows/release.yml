@@ -44,7 +44,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # The fleet Python (SYNC-1.6.22-1.6.29 item 5). Singleton literals
+          # are choices, not measurements: the only Python here that MEASURES
+          # anything is ci.yml's `package-python-range` matrix, which tests
+          # pyproject's `requires-python` claim against the built wheel.
+          python-version: "3.14"
 
       - name: Tag must match the version in pyproject.toml
         # Catches the classic release mistake: bumping the code but tagging the
@@ -71,7 +75,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # The fleet Python (SYNC-1.6.22-1.6.29 item 5). Singleton literals
+          # are choices, not measurements: the only Python here that MEASURES
+          # anything is ci.yml's `package-python-range` matrix, which tests
+          # pyproject's `requires-python` claim against the built wheel.
+          python-version: "3.14"
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

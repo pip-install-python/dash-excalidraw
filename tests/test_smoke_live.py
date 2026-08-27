@@ -122,14 +122,34 @@ def test_smoke_script_detects_a_stub_body(wired, smoke, monkeypatch, capsys):
 
 
 def test_smoke_script_detects_a_foreign_canonical(wired, smoke, monkeypatch, capsys):
+    """The rewrite host is DERIVED from BASE_URL, never spelled literally.
+
+    Ported from the template at 1.6.8 (found by llms-2plot-dev's fork audit)
+    with this round's smoke_live port: before it, this stub spelled the
+    hostname, so on any renamed fork the replace matched nothing, the
+    canonical stayed correct, and the test passed as a no-op — a guard that
+    silently stops guarding on exactly the sites that need it. This host's
+    literal happened to be right, which is luck, not a property. The in-stub
+    assertion makes the failure mode loud: if the rewrite ever touches a
+    canonical-bearing page without changing it, the test errors instead of
+    vacuously passing.
+    """
     original = smoke.fetch
 
     def rehosted(url, user_agent=smoke.BROWSER_UA, accept=None):
         status, body, headers = original(url, user_agent, accept)
-        return status, body.replace(
-            'rel="canonical" href="https://excalidraw.2plot.dev',
+        needle = f'rel="canonical" href="{BASE}'
+        rewritten = body.replace(
+            needle,
             'rel="canonical" href="https://someone-elses-host.example.com',
-        ), headers
+        )
+        if 'rel="canonical"' in body:
+            assert rewritten != body, (
+                "canonical present but the rewrite matched nothing — the "
+                "stub's host has drifted from BASE_URL and this test would "
+                "pass vacuously"
+            )
+        return status, rewritten, headers
 
     monkeypatch.setattr(smoke, "fetch", rehosted)
     assert wired.main(BASE) > 0
@@ -437,6 +457,29 @@ def test_a_cold_host_wakes_and_the_probe_requires_ok_true(smoke, monkeypatch, ca
     assert "attempt 4" in capsys.readouterr().out
 
 
+def test_wake_survives_a_legacy_fetch_stub(smoke, monkeypatch, capsys):
+    """A pre-wake-vintage fetch stub must not TypeError the whole suite.
+
+    Every fork owns a version of THIS file, and the older ones monkeypatch
+    fetch as `(url, user_agent, accept)` without patching wake — the 1.6.28
+    fan-out shipped wake()'s `fetch(url, retries=1, timeout=10)` into that
+    and went red on 7 of 12 forks before a single check ran, which is why
+    item 6 was reclassed from verbatim to contract at 1.6.29. wake now falls
+    back to a bare `fetch(url)` when the stub rejects its kwargs, so a
+    template copy landing ahead of a fork's stub update degrades to that
+    fork's own honest check results instead of a suite-wide crash.
+    """
+    monkeypatch.setattr(smoke, "time", _FakeTime())
+
+    def legacy(url, user_agent=smoke.BROWSER_UA, accept=None):
+        assert url.endswith("/healthz")
+        return 200, '{"backend":"flask","ok":true}', {}
+
+    monkeypatch.setattr(smoke, "fetch", legacy)
+    assert smoke.wake("https://x") is True
+    assert "attempt 1" in capsys.readouterr().out
+
+
 def test_a_host_that_never_wakes_is_one_failure_not_a_cascade(
     smoke, monkeypatch, capsys
 ):
@@ -496,9 +539,11 @@ def test_every_smoke_live_urlopen_passes_the_ssl_context():
     see it (they monkeypatch fetch), so a SOURCE pin is the only net with a
     mesh this fine.
 
-    This fork's script has one urlopen and no post(), so the pin is green on
-    arrival. It ships anyway: it is the net for the NEXT request helper
-    somebody adds here, which is exactly how the original one got in.
+    Written when this fork's script had one urlopen and no post(), as the net
+    for the NEXT request helper somebody added. That helper arrived one round
+    later: item 6's port brought `post()` and the auth-wiring probe in, and
+    the pin now guards two call sites instead of one — which is the whole
+    argument for shipping a green pin.
     """
     import re
     from pathlib import Path
