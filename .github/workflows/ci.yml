@@ -69,8 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           # SITE lane, held to the image's minor (the fleet Python).
           python-version: "3.14"
@@ -123,9 +123,9 @@ jobs:
           - python: "3.12"
             backend: flask
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -245,9 +245,9 @@ jobs:
           - dash: "4.4.1"
             python: "3.12"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -256,7 +256,7 @@ jobs:
       # smoke test skips that check rather than failing, so a broken
       # clientside_callback would sail through — which is exactly how the
       # light/dark tile swaps shipped invalid JS once already.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
 
@@ -290,7 +290,7 @@ jobs:
       - name: Smoke test
         run: python scripts/smoke_test.py --json smoke-${{ matrix.dash }}-py${{ matrix.python }}.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: smoke-${{ matrix.dash }}-py${{ matrix.python }}
@@ -303,14 +303,14 @@ jobs:
     timeout-minutes: 25
     needs: [test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The same build Render runs. This is where a dependency-resolution
       # failure surfaces — at CI time, not deploy time, where the only signal
       # is a dashboard log while the old image keeps serving.
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Build the production image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           tags: dash-excalidraw-docs:ci
@@ -437,13 +437,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # check_release.py compares the git commit times of the bundle and
           # src/ts. A shallow clone can omit the commit that last touched one
           # of them, which turns the check into a false "no git history" skip.
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           # The wheel is py3-none-any and check_release.py is stdlib, so the
           # interpreter here is a CHOICE, not a measurement — and a choice
@@ -553,7 +553,7 @@ jobs:
           echo "pyproject=$PY_VER  installed=$WHEEL_VER"
           test "$PY_VER" = "$WHEEL_VER"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -572,10 +572,10 @@ jobs:
         # package's floor is not the docs site's.
         python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
@@ -639,8 +639,8 @@ jobs:
     # change that raises those pins, not before.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           # SITE lane: it audits requirements.txt, the site's own tree.
           python-version: "3.14"
