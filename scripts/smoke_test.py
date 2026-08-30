@@ -3,8 +3,10 @@
 
 Boots ``run.py`` in-process and drives it through the backend's **test client**
 — real request/response handling, no socket bind — then reports one line per
-check. This is the same harness ``scripts/compat_matrix.py`` runs against each
-Dash version, so what passes here is what the matrix measures.
+check. ``.github/workflows/ci.yml``'s ``compat-matrix`` job runs this script
+directly against each Dash version, so what passes here is what the matrix
+measures. (The template drives it through a ``scripts/compat_matrix.py``
+wrapper; this repo has never had one.)
 
 What it checks
 --------------
@@ -59,6 +61,30 @@ os.environ.setdefault(
 os.environ.setdefault("ANALYTICS_GEO_LOOKUP", "0")
 os.environ.pop("CROSS_APP_WEBHOOK_SECRET", None)
 os.environ.setdefault("AD_SERVER_URL", "http://127.0.0.1:1")  # unreachable → slot hides
+
+# THE LANE. Every request this harness makes is a BROWSER request, so it has
+# to say so (1.6.40's lesson, arriving here by a second road — found on
+# leaflet's first CD run, reproduced on this tree at c74ad3e: exit 1, two
+# FAILs). A backend test client sends NO User-Agent, and at
+# dash-improve-my-llms >= 2.8 an absent UA is the CRAWLER lane — so the
+# `routes` loop below, which asserts 200 for every registered page, was
+# asking the crawler lane about pages that are `mark_hidden` and therefore
+# CORRECTLY 404 there. The harness read the package doing its job as two
+# broken pages.
+#
+# The token shape is scripts/network_smoke.py's and scripts/smoke_live.py's:
+# a real engine token FIRST, the internal token AFTER it (a substring match,
+# so the analytics exclusion still holds even though this run writes to a
+# temp ledger anyway).
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 "
+    "2plot-internal/1.0 (+https://2plot.ai/docs/satellite-analytics) smoke-test"
+)
+CRAWLER_UA = (
+    "Mozilla/5.0 (compatible; Googlebot/2.1) "
+    "2plot-internal/1.0 (+https://2plot.ai/docs/satellite-analytics)"
+)
 
 
 class Results:
@@ -145,9 +171,10 @@ def _http_checks(res: Results, run_mod, dash_mod) -> None:
         return
     res.add("http", "test client available", True, type(server).__name__)
 
-    def get(url: str, group: str, expect=(200,), label: str | None = None):
+    def get(url: str, group: str, expect=(200,), label: str | None = None,
+            ua: str = BROWSER_UA):
         try:
-            resp = client.get(url)
+            resp = client.get(url, headers={"User-Agent": ua})
             code = resp.status_code
             ok = code in expect
             res.add(group, label or url, ok, f"HTTP {code}")
@@ -167,9 +194,21 @@ def _http_checks(res: Results, run_mod, dash_mod) -> None:
     get("/sitemap.xml", "endpoints")
 
     # Every page path. A Dash SPA returns the same index HTML for all of them,
-    # so a non-200 means routing or the index template broke.
+    # so a non-200 means routing or the index template broke. Browser lane:
+    # see BROWSER_UA above for why that is not the default.
     for entry in dash_mod.page_registry.values():
         get(entry["path"], "routes")
+
+    # The other lane, asserted rather than assumed. Naming the browser lane
+    # above would otherwise MASK the inverse regression — an admin page that
+    # stopped being hidden would now quietly pass `routes` and be published
+    # to every crawler. `mark_hidden` makes these 404 to the crawler lane;
+    # that is the contract, so check it here too.
+    for entry in dash_mod.page_registry.values():
+        path = entry["path"]
+        if path.startswith("/admin/"):
+            get(path, "hidden", expect=(404,), ua=CRAWLER_UA,
+                label=f"{path} 404s to a crawler")
 
 
 def _check_callbacks(res: Results, dash_mod, run_mod) -> None:

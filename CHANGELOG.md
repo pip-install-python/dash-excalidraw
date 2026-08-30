@@ -97,6 +97,19 @@ component half. **Not deployed** — the owner holds the push.
   match, so the analytics exclusion still holds and the run is still counted
   nowhere. `CRAWLER_UA` is the other lane and is untouched.
   `scripts/smoke_live.py` was audited and already had this shape.
+- **`scripts/smoke_test.py` names the browser lane too** — the same defect by
+  a second road (found on leaflet's first CD run). A backend test client
+  sends NO User-Agent, which at the 2.8.0 floor is the crawler lane, so the
+  harness's "every registered page returns 200" loop was asking the crawler
+  lane about `/admin/control-board` and `/admin/traffic` — pages that are
+  `mark_hidden` and therefore CORRECTLY 404 there. Reproduced on this tree:
+  `python scripts/smoke_test.py` exited 1 with those two as the only
+  failures, which would have gone red in CI's `compat-matrix` job and taken
+  the deploy with it. Every request the harness makes now carries a
+  browser-lane UA, and the crawler lane is asserted explicitly rather than
+  assumed — admin paths must 404 to a crawler — so naming the browser lane
+  cannot mask the inverse regression of a hidden page becoming public.
+  56/56 checks, exit 0.
 
 ### Site — the ledger row, and `release` becomes the deploy branch (2026-08-29)
 
