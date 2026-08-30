@@ -325,33 +325,39 @@ table, so the repo that can keep it true is the one that holds it. Shape is
 validated by `tests/test_claude_kit.py`; absence of the fence, and absence
 of any key inside it, both SKIP rather than fail.
 
-**Only `deploy:` is declared.** `healthz:` and `runtime:` are not adopted
-here yet (the 1.6.30 item), and `ai_bots:` is deliberately WITHHELD for a
-sharper reason: sync item 15 flipped this host's crawler posture in the
-tree, and the fence declares what the host SERVES. Measured 2026-08-30:
+**`ai_bots:` and `deploy:` are declared; `healthz:` and `runtime:` are not**
+(the 1.6.30 item is still open here).
 
-| UA        | `/`  | `/llms.txt` | `/healthz` |
-|-----------|------|-------------|------------|
-| ClaudeBot | 403  | 200         | 403        | ← the WIRE, before the flip
-| GPTBot    | 403  | 200         | 403        | ← the WIRE, before the flip
-| ClaudeBot | 200  | 200         | 200        | ← IN-PROCESS, after the flip
-| GPTBot    | 200  | 200         | 200        | ← IN-PROCESS, after the flip
+`ai_bots` was deliberately WITHHELD until item 15's flip was on the wire —
+the fence declares what this host SERVES, not what its tree intends — and it
+is declared now because it has been measured there. The whole ladder, all of
+it on 2026-08-30:
 
-Declaring `{"/": 200, ...}` today would describe a host that does not exist
-yet; declaring 403 would describe one this repo has already stopped being.
-The key lands with the measured wire values in the same change as the first
-deploy that carries item 15. An undeclared key means "not measured here",
-never "the default is fine".
+| UA        | `/`  | `/llms.txt` | `/healthz` | when |
+|-----------|------|-------------|------------|------|
+| ClaudeBot | 403  | 200         | 403        | the WIRE, before the flip |
+| GPTBot    | 403  | 200         | 403        | the WIRE, before the flip |
+| ClaudeBot | 200  | 200         | 200        | IN-PROCESS, after the flip |
+| GPTBot    | 200  | 200         | 200        | IN-PROCESS, after the flip |
+| ClaudeBot | 200  | 200         | 200        | **the WIRE, 18:48Z, build d14cb83** |
+| GPTBot    | 200  | 200         | 200        | **the WIRE, 18:48Z, build d14cb83** |
 
-The wire-minus-in-process difference was ZERO on `/` and `/healthz` — every
-403 came from the app's own middleware, so there is no edge wall in front of
-this host (the owner separately confirmed on 2026-08-30 that no Cloudflare
-AI-bot rule exists: the feature is Enterprise-only on this plan).
+`robots.txt` carries zero `Disallow: /` lines on the wire, and no training
+stanza at all — GPTBot and ClaudeBot fall under `User-agent: *`.
+
+The wire-minus-in-process difference was ZERO on `/` and `/healthz` at every
+step — every 403 this host ever served came from the app's own middleware,
+so there is no edge wall in front of it (the owner separately confirmed on
+2026-08-30 that no Cloudflare AI-bot rule exists: the feature is
+Enterprise-only on this plan).
+
+An undeclared key means "not measured here", never "the default is fine".
 
 `deploy: release-branch` says CD promotes `main` to `release` on a green
 matrix and Render deploys `release` (`SYNC-1.6.22-1.6.35` item 13). Absence
 of the key would read as "this host still watches main".
 
 ```yaml posture
+ai_bots: {"/": 200, "/llms.txt": 200, "/healthz": 200}
 deploy: release-branch
 ```
