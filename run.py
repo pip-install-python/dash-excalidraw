@@ -359,16 +359,36 @@ app._base_url = BASE_URL
 # lib/network_directory.py — one definition, imported by every satellite.
 network_directory.apply(BASE_URL)
 
-# Configure bot management policies — the balanced default this project
-# documents: block training crawlers, allow AI search citations and
-# traditional search. As of dash-improve-my-llms 2.3.3 the buckets are
-# correct per vendor: ClaudeBot (Anthropic's *training* crawler) sits in the
-# training block, while the user-triggered and search fetchers Claude-User /
-# Claude-SearchBot are allowed alongside ChatGPT-User / OAI-SearchBot /
-# PerplexityBot. With block_ai_training=False the training bucket is never
-# emitted at all, which silently allows training — not "balanced".
+# Crawler posture — THE WALL IS RETIRED (1.6.37, Round 3.4, owner decision
+# 2026-08-29). Until now this host blocked the AI-training crawlers
+# (GPTBot, ClaudeBot, CCBot, …): robots.txt said Disallow and the package's
+# middleware answered 403 on the browser document and /healthz, while the
+# corpus (/llms.txt and the tiers) stayed open — a wall that decided by
+# vendor CLASS what nobody could account for. Measured on this host's wire
+# 2026-08-30, before the flip: ClaudeBot and GPTBot both got 403 on `/`,
+# 200 on /llms.txt, 403 on /healthz.
+#
+# The ledger changed that. Since the 2.8.0 round every corpus read is a row
+# (tier, vendor, verified, bytes) and the hub reconciles it against the
+# wire, so a read is recorded and priceable. A read like that does not need
+# a wall; it needs a policy. Training crawlers are ALLOWED by default now,
+# the same as search fetchers and traditional bots, and the per-vendor knob
+# is the tool from here on — block or meter ONE vendor by name when its
+# ledger rows justify it, never the whole class:
+#
+#     vendor_policy={"bytespider": "block", "gptbot": "meter"}
+#
+# (2.3.3's per-vendor buckets still matter: they are what makes a per-vendor
+# line mean the vendor it names — ClaudeBot is Anthropic's *training*
+# crawler, distinct from Claude-User / Claude-SearchBot.) A fork whose
+# posture fence declares ai_bots 403 BY DESIGN keeps the training block on
+# and records it; this host does not. Sync item 15.
+#
+# The literal `block_ai_training` + `=True` is deliberately not spelled
+# anywhere in this file: item 15's detect greps for exactly that string, and
+# a prose mention would report a flipped host as unflipped.
 app._robots_config = RobotsConfig(
-    block_ai_training=True,       # Disallow GPTBot, ClaudeBot, CCBot, etc.
+    block_ai_training=False,      # training crawlers allowed; the ledger records every read
     allow_ai_search=True,         # Allow Claude-User/-SearchBot, ChatGPT-User, ...
     allow_traditional=True,       # Allow Googlebot, Bingbot, etc.
     crawl_delay=10,

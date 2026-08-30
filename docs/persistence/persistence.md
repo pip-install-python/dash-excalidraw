@@ -4,6 +4,7 @@ description: Stream serializedData to a Store or a database and restore a scene 
 endpoint: /persistence
 package: dash_excalidraw
 category: Data flow
+order: 2
 icon: mdi:content-save-outline
 lastmod: 2026-08-08
 ---

@@ -601,3 +601,82 @@ img[alt=logo] { width: 100%; }
     font-size: 12px;
     color: #909296;
 }
+
+/* ---------------------------------------------------------------------------
+ * MOBILE FIT (sync item 16 / template 1.6.39) — ported, not copied.
+ *
+ * This fork's own table rule above is scoped to the markdown page bodies and
+ * was measured here (105px of drag at 414px); it already covers the kwargs
+ * prop table by element, so the template's `table.m2d-table,
+ * table.m2d-block-kwargs` pair is reduced to the one class the fork's
+ * selector cannot reach on its own. Everything below is the template's
+ * verbatim: the containers a code block can sit in, which refuse to shrink
+ * below the code's intrinsic width and drag the whole document wide.
+ *
+ * Public Mantine class names only — never the hashed .m_* internals, for the
+ * reason written out at length further down this file.
+ * ------------------------------------------------------------------------ */
+
+/* `.. kwargs::` prop tables carry m2d-block-kwargs, not m2d-table — the one
+   table class a page-scoped element selector still wants named explicitly;
+   measured on the template's /examples/directives at 391px: a 457px table
+   in a 488px document. */
+table.m2d-block-kwargs {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* Code blocks scroll inside their own box, wherever they sit (1.6.39;
+   owner-observed on /backend-comparison at phone width). CodeHighlight's
+   <pre> already scrolls, but a flex parent with the default min-width:auto
+   — Mantine's List item wrapper, a Blockquote, a Stack — refuses to shrink
+   below the code's intrinsic width and drags the whole document wide
+   (measured: a 959px document in a 200px viewport, widest element the
+   List itemWrapper around the "Replace @server.before_request" block).
+   Public Mantine class names only — never the hashed .m_* internals. */
+.mantine-List-itemWrapper,
+.mantine-List-itemLabel,
+.mantine-List-item,
+.mantine-Blockquote-root,
+.mantine-Timeline-itemBody,
+.mantine-CodeHighlight-root,
+.mantine-CodeHighlightTabs-root {
+    min-width: 0;
+    max-width: 100%;
+}
+/* The wrapper is inline-flex and the label a block child: without
+   min-width:0 on the LABEL too, it grows to the code's width (measured
+   887px inside a 287px wrapper on /backend-comparison at 391px). */
+.mantine-List-itemWrapper {
+    width: 100%;
+}
+.mantine-List-itemLabel {
+    flex: 1 1 auto;
+}
+/* Timeline bullets (/changelog): a Text in a no-wrap Group grows to its
+   longest unbreakable token — a 60-character test name in a code span —
+   and leaves its card (a 549px document at 391px). Same rule as the
+   component sets inline; here so the stylesheet alone holds the line. */
+.mantine-Timeline-root .mantine-Text-root,
+.mantine-Timeline-root .mantine-Code-root {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+/* Inline code in prose: a long unbreakable token (`app.server.before_request`
+   chains, dotted module paths) is the last thing that can push a page past
+   the viewport once blocks and tables scroll in their own boxes — measured:
+   a 353px codespan, a 425px document at 391px on /backend-comparison.
+   Block code (CodeHighlight) keeps pre formatting; this is inline only. */
+code.m2d-codespan,
+.mantine-Code-root:not(.mantine-CodeHighlight-code) {
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+.mantine-CodeHighlight-root pre,
+.mantine-CodeHighlightTabs-root pre,
+.mantine-AppShell-main pre {
+    overflow-x: auto;
+    max-width: 100%;
+}

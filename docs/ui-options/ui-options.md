@@ -4,6 +4,7 @@ description: "The JSON-safe subset of Excalidraw's UIOptions: hide toolbar actio
 endpoint: /ui-options
 package: dash_excalidraw
 category: Appearance
+order: 3
 icon: mdi:tune-variant
 lastmod: 2026-08-08
 ---

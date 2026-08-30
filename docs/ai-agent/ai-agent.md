@@ -4,6 +4,7 @@ description: Turn a natural-language prompt into an Excalidraw scene with Claude
 endpoint: /ai-agent
 package: dash_excalidraw
 category: Advanced
+order: 4
 icon: mdi:robot-outline
 tier: auth
 lastmod: 2026-08-08

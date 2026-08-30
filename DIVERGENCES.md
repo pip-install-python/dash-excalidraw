@@ -195,6 +195,65 @@ upward with this round's report as a template-class finding. A sync must not
 restore the naked `urlopen`; when the template adopts the context, this entry
 retires.
 
+### 10. The sidebar marks `auth`-tier pages with a lock
+
+Template 1.6.38's navigation contract hides `hidden`-tier pages from the
+sidebar and search and says nothing about `auth`. `components/navbar.py`'s
+`_page_link` here adds a small lock icon and a "Sign in required" tooltip
+when `page_tiers.local_tier(path) == "auth"`.
+
+**Why:** the template has no auth-tier DOCS page, so the case never came up
+there. This site has two — `/ai-agent` and `/benchmark`, which call thinking
+models — and listing them indistinguishably from the twelve public pages
+sends a reader to a sign-in card with no warning. The gate itself is
+unchanged; this is signage, and it is the only fork content in a file the
+item wants to become cargo next round.
+
+**Filed upward** with the 15+16 report as a template-class finding: every
+component fork that gates a demo page has this shape. When the template
+adopts it, this entry retires and `navbar.py` becomes byte-identical.
+
+**Implementation note that is not optional:** the marker is a `dmc.Tooltip`
+wrapper, never `title=`. DMC 2.8's `Anchor` and `ActionIcon` accept `aria-*`
+wildcards but REJECT `title`, and the `TypeError` is raised during app
+construction — the whole site fails to boot rather than rendering a wrong
+tooltip. `components/header.py` records the same trap.
+
+### 11. `SAME_AS` carries the PyPI project as well as the repository
+
+Template 1.6.38 introduces one repository constant and sets
+`SAME_AS = [GITHUB_URL]`. Here `SAME_AS = [GITHUB_URL, PYPI_URL]`.
+
+**Why:** divergence 1 — this repo is the component AND its docs, so the PyPI
+project is a third URL for the same entity, and three properties pointing at
+each other is the strongest statement of which URL is a package's canonical
+docs home. `GITHUB_URL` is still the single source for the repository, which
+is what the item's contract actually requires (the header icon, Resources and
+`sameAs` all read it). `tests/test_nav_contract.py` asserts
+`GITHUB_URL in SAME_AS`, not equality, so the pin holds either way.
+
+### 12. `tests/test_nav_contract.py` narrows the Resources ban and inverts the API pin
+
+Two adaptations, both because the template's own values are not this fork's:
+
+- **The Resources ban is narrowed from `"github.com"` to the OWNER's GitHub
+  URLs.** Contract (5) requires the sidebar to link the UPSTREAM project, and
+  most of the fleet's upstreams — Excalidraw here, and FlexLayout,
+  emoji-mart, model-viewer and Pannellum elsewhere — have a GitHub repository
+  as their project home. The blanket ban makes the contract's own requirement
+  unsatisfiable. What the rule means is the owner's links, which belong in the
+  top bar and the footer; those are what this copy bans (`GITHUB_URL`,
+  `GITHUB_PROFILE_URL`, `pip-install-python`). **Filed upward** as a
+  template-class finding.
+- **`test_api_page_is_not_registered_when_no_package_is_declared` is
+  INVERTED.** The template documents no component package and pins `/api`
+  absent; this repo IS the component, so the pin asserts the page exists and
+  that `lib.api_reference` really reads `dash_excalidraw`'s metadata (one
+  component, `DashExcalidraw`, 38 props).
+
+The two aside pins and the excluded-links positive control name this fork's
+own pages (`/basic`, `/events`) instead of the template's.
+
 ## Retired
 
 Retirements are marked here, not deleted, so that older reports describing
@@ -266,11 +325,28 @@ table, so the repo that can keep it true is the one that holds it. Shape is
 validated by `tests/test_claude_kit.py`; absence of the fence, and absence
 of any key inside it, both SKIP rather than fail.
 
-**Only `deploy:` is declared.** The rest of the 1.6.30 posture item
-(`ai_bots:`, `healthz:`, `runtime:`) is NOT adopted here yet — those keys
-want a measurement on the wire per path, and declaring them from the tree
-would be exactly the aging copy the fence exists to kill. An undeclared key
-means "not measured here", never "the default is fine".
+**Only `deploy:` is declared.** `healthz:` and `runtime:` are not adopted
+here yet (the 1.6.30 item), and `ai_bots:` is deliberately WITHHELD for a
+sharper reason: sync item 15 flipped this host's crawler posture in the
+tree, and the fence declares what the host SERVES. Measured 2026-08-30:
+
+| UA        | `/`  | `/llms.txt` | `/healthz` |
+|-----------|------|-------------|------------|
+| ClaudeBot | 403  | 200         | 403        | ← the WIRE, before the flip
+| GPTBot    | 403  | 200         | 403        | ← the WIRE, before the flip
+| ClaudeBot | 200  | 200         | 200        | ← IN-PROCESS, after the flip
+| GPTBot    | 200  | 200         | 200        | ← IN-PROCESS, after the flip
+
+Declaring `{"/": 200, ...}` today would describe a host that does not exist
+yet; declaring 403 would describe one this repo has already stopped being.
+The key lands with the measured wire values in the same change as the first
+deploy that carries item 15. An undeclared key means "not measured here",
+never "the default is fine".
+
+The wire-minus-in-process difference was ZERO on `/` and `/healthz` — every
+403 came from the app's own middleware, so there is no edge wall in front of
+this host (the owner separately confirmed on 2026-08-30 that no Cloudflare
+AI-bot rule exists: the feature is Enterprise-only on this plan).
 
 `deploy: release-branch` says CD promotes `main` to `release` on a green
 matrix and Render deploys `release` (`SYNC-1.6.22-1.6.35` item 13). Absence

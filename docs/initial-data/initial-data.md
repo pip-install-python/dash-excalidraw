@@ -4,6 +4,7 @@ description: Pre-populate the canvas on mount with elements, appState overrides 
 endpoint: /initial-data
 package: dash_excalidraw
 category: Getting started
+order: 2
 icon: mdi:database-import-outline
 lastmod: 2026-08-08
 ---

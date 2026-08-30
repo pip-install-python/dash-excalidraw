@@ -4,6 +4,7 @@ description: Call Excalidraw's imperative API from Python through a JSON-safe co
 endpoint: /commands
 package: dash_excalidraw
 category: Data flow
+order: 3
 icon: mdi:console-line
 lastmod: 2026-08-08
 ---

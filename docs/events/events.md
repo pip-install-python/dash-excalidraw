@@ -4,6 +4,7 @@ description: Every Excalidraw callback surfaced as a timestamped snapshot prop y
 endpoint: /events
 package: dash_excalidraw
 category: Data flow
+order: 1
 icon: mdi:flash-outline
 lastmod: 2026-08-08
 ---

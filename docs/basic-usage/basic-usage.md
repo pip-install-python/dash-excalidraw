@@ -4,6 +4,7 @@ description: The minimum viable DashExcalidraw — one component, default props,
 endpoint: /basic
 package: dash_excalidraw
 category: Getting started
+order: 1
 icon: mdi:draw
 lastmod: 2026-08-08
 ---

@@ -72,9 +72,11 @@ def test_robots_artifact_fingerprint(client):
 
     - 2.3.2: `OAI-SearchBot -> Allow` (ChatGPT search's crawler; pre-fix
       builds disallowed it).
-    - 2.3.3: `ClaudeBot -> Disallow` (the actual *training* crawler, moved to
-      the training bucket) while `Claude-User` and `Claude-SearchBot` — the
-      user-triggered and search fetchers — are allowed.
+    - 2.3.3: ClaudeBot (the actual *training* crawler) moved to the
+      training bucket, while `Claude-User` and `Claude-SearchBot` — the
+      user-triggered and search fetchers — are allowed. Which BUCKET each
+      vendor sits in is still the artifact; whether the training bucket is
+      walled is this host's POSTURE, and since 1.6.37 it is not.
     """
     lines = client.get("/robots.txt").text.splitlines()
 
@@ -83,7 +85,18 @@ def test_robots_artifact_fingerprint(client):
         return lines[idx + 1]
 
     assert rule("OAI-SearchBot") == "Allow: /", "pre-2.3.2 artifact"
-    assert rule("ClaudeBot") == "Disallow: /", "pre-2.3.3 artifact"
+    # POSTURE, not artifact, since 1.6.37 (the wall retired; training
+    # crawlers allowed by default): with the training block off the
+    # package emits NO training stanza at all — GPTBot and ClaudeBot fall
+    # under `User-agent: *` / Allow. So the pin is "no Disallow for them",
+    # absent or Allow both being the allow shape. A fork whose posture
+    # fence declares ai_bots 403 by design asserts `Disallow: /` here
+    # instead and records the divergence (sync item 15). This host does
+    # not: it allows, and the ledger records every read.
+    for agent in ("ClaudeBot", "GPTBot"):
+        marker = f"User-agent: {agent}"
+        if marker in lines:
+            assert rule(agent) != "Disallow: /", f"{agent} still walled — the 1.6.37 posture flip has not landed"
     assert rule("Claude-User") == "Allow: /", "pre-2.3.3 artifact"
     assert rule("Claude-SearchBot") == "Allow: /", "pre-2.3.3 artifact"
 

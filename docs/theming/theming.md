@@ -4,6 +4,7 @@ description: Light and dark canvas themes, and how to keep them in step with you
 endpoint: /theming
 package: dash_excalidraw
 category: Appearance
+order: 1
 icon: mdi:palette-outline
 lastmod: 2026-08-08
 ---

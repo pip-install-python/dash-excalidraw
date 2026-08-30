@@ -4,6 +4,7 @@ description: View mode, zen mode and grid mode — three declarative booleans th
 endpoint: /view-modes
 package: dash_excalidraw
 category: Appearance
+order: 2
 icon: mdi:eye-outline
 lastmod: 2026-08-08
 ---

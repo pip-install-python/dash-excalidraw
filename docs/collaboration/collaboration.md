@@ -4,6 +4,7 @@ description: Drive the collaborator UI and live cursors from Python — the wrap
 endpoint: /collaboration
 package: dash_excalidraw
 category: Advanced
+order: 3
 icon: mdi:account-group-outline
 lastmod: 2026-08-08
 ---

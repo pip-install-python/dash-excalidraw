@@ -4,6 +4,7 @@ description: Read and write the Excalidraw shape library from Python with lastLi
 endpoint: /library
 package: dash_excalidraw
 category: Advanced
+order: 1
 icon: mdi:bookshelf
 lastmod: 2026-08-08
 ---

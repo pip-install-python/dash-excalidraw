@@ -4,6 +4,7 @@ description: "Keep canvas JSON small: push pasted images to external storage and
 endpoint: /file-uploads
 package: dash_excalidraw
 category: Advanced
+order: 2
 icon: mdi:cloud-upload-outline
 lastmod: 2026-08-08
 ---

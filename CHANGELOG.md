@@ -6,6 +6,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site — the wall comes down, and navigation comes from one registry (2026-08-30)
+
+Consumes dash-documentation-boilerplate's `sync/SYNC-1.6.22-1.6.38.md` items
+15 and 16 at template 1.6.39 (`519d496`), against the owner's brief
+`DESIGN-navigation-uniformity-2026-08-30`. Nothing here touches the
+component half. **Not deployed** — the owner holds the push.
+
+#### Changed
+
+- **Training crawlers are ALLOWED by default.** `block_ai_training` is off:
+  robots.txt emits no training stanza at all (GPTBot, ClaudeBot and CCBot
+  fall under `User-agent: *` / Allow), and the package's middleware stops
+  answering 403 on the browser document and `/healthz` for them. The wall
+  decided by vendor CLASS what nobody could account for; since the 2.8.0
+  ledger round every corpus read is a row that can be priced, so the tool
+  is now per-vendor policy — `vendor_policy={"<key>": "block" | "meter"}`
+  for ONE vendor whose rows justify it. Measured on this host's wire
+  2026-08-30 BEFORE the flip: ClaudeBot and GPTBot both 403 on `/`, 200 on
+  `/llms.txt`, 403 on `/healthz`. In-process AFTER: 200/200/200 for both,
+  and zero `Disallow: /` in robots.txt. Every one of those 403s was the
+  app's own middleware — there is no edge wall in front of this host.
+- **The sidebar is built from frontmatter, not from a hand-written list.**
+  `components/navbar.py`'s `page_order` and `excluded_links` are DELETED.
+  Sections now come from each page's `category:` ordered by
+  `lib.constants.CATEGORY_ORDER`, and pages within a section by a new
+  `order:` frontmatter field. The reading order the old list encoded is
+  preserved exactly, promoted from page names to four categories: Getting
+  started · Data flow · Appearance · Advanced.
+- **The network is listed ONCE**, as the top bar's *Other Apps* hover menu,
+  from `lib.network_directory.PRIMARY` — 2plot.ai, 2plot.dev, 2plot.media,
+  piratesbargain.com, ai-agent.buzz, this host removed, labelled by domain.
+  The sidebar's "Pip Components" and "Other Apps I've built" sections are
+  gone, and with them the duplicate 2plot.dev entry that appeared in both
+  that list and Resources.
+- **Resources is third-party only**: `dmc` and Excalidraw, the upstream
+  project this component wraps. `community.plotly.com` and the duplicate
+  2plot.dev link are removed.
+- **The top bar's GitHub icon and JSON-LD `sameAs` share one constant**
+  (`GITHUB_URL`), and the icon points at this repository rather than the
+  profile. The footer's GitHub link is the profile — two different links,
+  each in the right place.
+- **`/admin/*` is hidden, not blocked.** The startup sidebar tree carries no
+  `/admin/` href at all; a callback fills an Admin section only for
+  `is_admin_user()`. Admin pages never enter search either.
+- **`/admin/traffic`'s day picker is `dmc.DatePickerInput`**, bounded by the
+  ledger's first and last day with Today / Yesterday / Last 7 days presets —
+  the fleet's no-`dcc`-where-DMC-has-it rule. `pages/home.py` moves off
+  `dcc.Markdown` to the same markdown2dash renderer the docs use.
+
+#### Added
+
+- **`/changelog`** — this file as a DMC Timeline, and its own `LLMS_DOC`.
+  Linked once, from the sidebar.
+- **`/api`** — one prop table per component, generated from the installed
+  package's `metadata.json`. `API_PACKAGES = ["dash_excalidraw"]`, so this
+  site documents `DashExcalidraw`'s 38 props without hand-maintaining a
+  table. The header gains a version badge reading the same package.
+- **A footer** — © {year} Pip Install Python LLC · GitHub profile · Discord ·
+  YouTube, every icon named.
+- **A People section on `/admin/traffic`**, above the crawler tables, with
+  the day's human hits / visitors / sessions / median session and the line
+  that answers the owner's question directly: humans never enter the read
+  ledger, so "(unidentified)" below is the crawler lane with no vendor
+  match, never a person.
+- **Accessibility**: the sidebar Burger, the search inputs, the ledger's day
+  picker and every footer icon carry names; `CodeHighlightTabs` sets
+  `copyLabel` / `copiedLabel`.
+- **Auth-tier pages carry a lock in the sidebar** — `/ai-agent` and
+  `/benchmark`. A divergence from template 1.6.38, recorded and filed
+  upward: the template has no auth-tier docs page, so listing one
+  indistinguishably from a public page was never its problem.
+- **Mobile fit**: code blocks inside a List item, Blockquote or Timeline can
+  no longer widen the document at phone width, and the mobile drawer is
+  `keepMounted` so the hamburger never opens onto an empty panel.
+- Tests 418 → 444. New: `tests/test_nav_contract.py` (25 pins),
+  `tests/test_excluded_links_hidden.py`, and `tests/fixtures/fake_dash_pkg`.
+
 ### Site — the ledger row, and `release` becomes the deploy branch (2026-08-29)
 
 Consumes dash-documentation-boilerplate's `sync/SYNC-1.6.22-1.6.35.md`

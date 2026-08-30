@@ -4,6 +4,7 @@ description: Export to SVG, PNG blob or canvas through an async command/lastExpo
 endpoint: /export
 package: dash_excalidraw
 category: Data flow
+order: 4
 icon: mdi:export-variant
 lastmod: 2026-08-08
 ---

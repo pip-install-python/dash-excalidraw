@@ -4,6 +4,7 @@ description: "Run one prompt across several efforts or token budgets at once and
 endpoint: /benchmark
 package: dash_excalidraw
 category: Advanced
+order: 5
 icon: mdi:chart-box-outline
 tier: auth
 lastmod: 2026-08-09
