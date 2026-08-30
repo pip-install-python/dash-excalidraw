@@ -80,8 +80,23 @@ component half. **Not deployed** — the owner holds the push.
 - **Mobile fit**: code blocks inside a List item, Blockquote or Timeline can
   no longer widen the document at phone width, and the mobile drawer is
   `keepMounted` so the hamburger never opens onto an empty panel.
-- Tests 418 → 444. New: `tests/test_nav_contract.py` (25 pins),
-  `tests/test_excluded_links_hidden.py`, and `tests/fixtures/fake_dash_pkg`.
+- Tests 418 → 445. New: `tests/test_nav_contract.py` (25 pins),
+  `tests/test_excluded_links_hidden.py`, `tests/fixtures/fake_dash_pkg`, and
+  the battery's lane pin.
+
+#### Fixed
+
+- **The live battery's default User-Agent names the browser lane**
+  (`sync/SYNC-1.6.22-1.6.40.md` item 17, found by muischeduler). At the
+  2.8.0 floor a User-Agent with no browser engine token is crawler-lane, and
+  `scripts/network_smoke.py`'s default was the bare internal token plus
+  `" network-smoke"` — so every default-UA check was reading the prerendered
+  crawler document, and any browser-shape check would have gone red in CD's
+  verify job the moment it was added. The Chrome/AppleWebKit token now comes
+  FIRST and the internal token after it; `INTERNAL_UA_TOKEN` is a substring
+  match, so the analytics exclusion still holds and the run is still counted
+  nowhere. `CRAWLER_UA` is the other lane and is untouched.
+  `scripts/smoke_live.py` was audited and already had this shape.
 
 ### Site — the ledger row, and `release` becomes the deploy branch (2026-08-29)
 
