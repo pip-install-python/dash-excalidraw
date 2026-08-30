@@ -110,6 +110,16 @@ component half. **Not deployed** — the owner holds the push.
   assumed — admin paths must 404 to a crawler — so naming the browser lane
   cannot mask the inverse regression of a hidden page becoming public.
   56/56 checks, exit 0.
+- **`/api` no longer depends on a gitignored build artifact.**
+  `dash_excalidraw/metadata.json` is a `dash-generate-components` byproduct:
+  gitignored on purpose, and `scripts/check_release.py` asserts it is absent
+  from the built wheel. So it exists only on a machine that has run
+  `npm run build` — never in a CI checkout, never in the production image.
+  Reading it alone made `/api` document 38 props on the author's laptop and
+  nothing anywhere else. `lib/api_reference.py` now prefers `metadata.json`
+  when present and falls back to the generated component class's docstring,
+  which is tracked, ships in the wheel, and carries the same catalogue in
+  Dash's standard "Keyword arguments:" format. Same 38 props either way.
 
 ### Site — the ledger row, and `release` becomes the deploy branch (2026-08-29)
 

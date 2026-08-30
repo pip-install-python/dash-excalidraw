@@ -280,6 +280,36 @@ def test_the_api_page_is_registered_because_this_repo_ships_a_component(app_modu
     assert [c["name"] for c in comps["components"]] == ["DashExcalidraw"]
 
 
+def test_the_api_page_does_not_depend_on_a_gitignored_build_artifact():
+    """The regression this test exists for, measured on run 33328319735.
+
+    `dash_excalidraw/metadata.json` is a `dash-generate-components`
+    byproduct: gitignored on purpose, and `scripts/check_release.py` asserts
+    it is absent from the built wheel. So it exists ONLY on a machine that
+    has run `npm run build` — never in a CI checkout, never in the
+    production image. Reading it alone made /api document 38 props on the
+    author's laptop and NOTHING anywhere else: green locally, red on all
+    four pytest legs in CD, and an empty `## dash_excalidraw` section on the
+    wire. The generated stub is tracked and IS in the wheel, so the
+    docstring is the source that always exists.
+
+    This pin reads the classes DIRECTLY, so it passes with or without the
+    artifact present — which is the whole point.
+    """
+    import dash_excalidraw
+
+    from lib import api_reference
+
+    comps = api_reference._from_classes(dash_excalidraw)
+    assert [c["name"] for c in comps] == ["DashExcalidraw"]
+    props = {p["name"]: p for p in comps[0]["props"]}
+    assert len(props) >= 30, sorted(props)
+    assert props["id"]["type"] == "string"
+    assert "setProps" not in props
+    assert comps[0]["props"][0]["name"] == "id", "id sorts first"
+    assert props["command"]["description"], "descriptions survived the parse"
+
+
 def test_missing_package_is_reported_not_raised():
     from lib import api_reference
 
