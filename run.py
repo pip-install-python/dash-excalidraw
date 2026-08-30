@@ -49,6 +49,7 @@ from dash_improve_my_llms import (
     add_llms_routes,
     LLMSConfig,
     RobotsConfig,
+    on_document_read,
     register_page_metadata,
 )
 
@@ -63,7 +64,18 @@ from dash_improve_my_llms import (
 # per-page `title`/`image_url`/`schema_type` actually reaching the crawler
 # document, /favicon.ico answered with a redirect instead of the app shell,
 # and a prerender that no longer clobbers the browser's per-page <title>.
-# 2.7.1 is the round-3 floor. 2.7.0 dedups the prerender H1 (every page
+# 2.8.0 is the LEDGER floor (2026-08-29): ONE classifier — `classify()` is
+# the registry robots.txt is rendered from, and lib/analytics_tracker
+# delegates to it instead of carrying a fourth User-Agent list that filed
+# ClaudeBot as search; the READ EVENT — `on_document_read` hands the app one
+# row per corpus document served (tier, verdict, bytes, verified vendor),
+# which the tracker keeps as the ledger's `reads` table; `Vary: User-Agent`
+# on the lane-split responses; and verified vendor identity (`verified` is
+# `n/a` where the operator publishes no ranges — Anthropic does not).
+# 2.8.1 will write the resolved `policy` on every event; until then it is
+# None and lib/traffic_rollup groups it as "default". Nothing here waits
+# on it.
+# 2.7.1 was the round-3 floor. 2.7.0 dedups the prerender H1 (every page
 # served TWO h1s to crawlers — the injected header plus the doc body's own
 # markdown H1) and the home footer's doubled /llms.txt link, and hardens
 # the idempotency probe so a page that merely MENTIONS the marker no longer
@@ -85,7 +97,7 @@ from dash_improve_my_llms import (
 # `configure_seo` is deliberately imported AFTER this floor fires (see the
 # floors block) so a stale environment gets the floor's diagnosis instead of
 # a bare ImportError.
-LLMS_PKG_FLOOR = (2, 7, 1)
+LLMS_PKG_FLOOR = (2, 8, 0)
 
 # THE FORK POINT — claim this app's network identity before any hub-facing
 # module imports. Every module that names this app (satellite_reporter,
@@ -180,6 +192,10 @@ if LLMS_PKG_FLOOR > _version(LLMS_PKG_VERSION):
     _dependency_floor(
         f"dash-improve-my-llms {LLMS_PKG_VERSION} is below the "
         f"{'.'.join(str(n) for n in LLMS_PKG_FLOOR)} floor in requirements.txt. "
+        "Below 2.8.0 there is no `classify()` and no `on_document_read`: the "
+        "tracker cannot delegate bot classification and no read row is ever "
+        "kept, so the ledger's `reads` table and rollup v4's vendors[] are "
+        "empty (ImportError at boot, not a silent degrade). "
         "Below 2.7.1 the llms.txt v2 discovery relations (rel=alternate/"
         "describedby + Link headers), the text/plain Accept ramp, and the "
         "representation digest are missing. Below 2.7.0 every page serves a "
@@ -569,6 +585,16 @@ ACCESS_ENABLED = _access.configure(
 # header. `?raw=1` and `?format=html` force either side, and both variants
 # send `Vary: Accept` so a CDN cannot hand cached HTML to the next agent.
 add_llms_routes(app, LLMSConfig(warn_missing_llms_doc=True))
+
+# The ledger row (dimll 2.8.0): the package emits one event per corpus
+# document it serves and does no I/O with it; the tracker keeps it as the
+# `reads` table next to `visits`. Registered ONCE — the test suite imports
+# run.py more than once per process and `on_document_read` appends, so a
+# marker on the callback's owner guards the second import (the package also
+# dedups an identical callable; belt and braces).
+if not getattr(tracker, "_read_hook_registered", False):
+    on_document_read(tracker.record_read)
+    tracker._read_hook_registered = True
 
 # ============================================================================
 

@@ -6,6 +6,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site — the ledger row, and `release` becomes the deploy branch (2026-08-29)
+
+Consumes dash-documentation-boilerplate's `sync/SYNC-1.6.22-1.6.35.md`
+items 12 and 13 at template 1.6.35 (`4c63992`). Nothing here touches the
+component half.
+
+#### Changed
+
+- **dimll floor 2.7.1 → 2.8.0**, in all four encodings the number lives in:
+  `requirements.txt` (the flask line plus the three commented backend
+  lines), `run.py`'s `LLMS_PKG_FLOOR` and its boot diagnosis, and
+  `ci.yml`'s two asserts. Editing the requirements line IS the Docker cache
+  bust; a `>=` floor can never pull a new release through a cache hit.
+- **There is ONE classifier.** `lib/analytics_tracker.py` carried its own
+  User-Agent lists for a year. They filed ClaudeBot — Anthropic's
+  *training* crawler — under "search", still named the retired
+  `anthropic-ai` / `claude-web` tokens, and counted every UA-less or
+  library client (`httpx`, `Go-http-client`) as a person. The lists are
+  gone: `is_bot` and `detect_bot_type` keep their names and signatures for
+  callers and delegate to `dash_improve_my_llms.classify()`, which is the
+  same registry `robots.txt` is rendered from — so what this site SAYS
+  about a vendor and what it COUNTS now agree. `track_visit` classifies
+  exactly once, *after* the real client IP is resolved, so `verified` is
+  computed against the client rather than the proxy. Crawler rows gain
+  `vendor_key`, `vendor_class`, `verified` and `lane`; human rows are
+  byte-identical to before.
+- **REPORTING CONSEQUENCE, expected and not a regression:** `human_hits`
+  DROPS and `bot_hits` RISES on adoption day, because UA-less and library
+  clients move from the human lane to the crawler lane. That is the number
+  becoming true. The hub's day-over-day view will show the step.
+- **Render deploys `release`, and only CD writes `release`.**
+  `.github/workflows/cd.yml`'s `deploy` job no longer POSTs a Render deploy
+  hook; it fast-forward-pushes the run's own sha to `refs/heads/release`
+  after the CI matrix is green, under a job-level `contents: write` grant
+  (the workflow stays `contents: read`). The checkout is `fetch-depth: 0` —
+  a shallow HEAD pushed onto an EXISTING `release` is rejected as
+  non-fast-forward, which a fork does not discover until its SECOND
+  promote. `render.yaml` declares `branch: release`. A push to `main` is
+  now a candidate, not a deploy. **The repository's deploy-hook secret is
+  inert and safe to delete.**
+- **`verify` gains a `/healthz build == github.sha` assertion of its own**,
+  and its `if:` is now the template's verbatim `needs.deploy.result ==
+  'success'` (was `always() && needs.deploy.result == 'success'` — the two
+  are equivalent). This fork's divergence 5 is **retired by convergence**:
+  template 1.6.35 adopted the stricter gate after run 33262495272 showed
+  the permissive form reporting GREEN against the previous build on a
+  failed promote — the same failure this fork measured on 2026-08-21.
+
+#### Added
+
+- **The read ledger.** `run.py` registers `on_document_read(
+  tracker.record_read)` once, next to `add_llms_routes`. Every corpus
+  document dash-improve-my-llms serves now lands as a row in a `reads`
+  table in the SAME analytics file — same buffer, lock, flush cadence and
+  retention as `visits` — carrying tier, lane, vendor, verified, policy,
+  verdict, status and bytes. `client_ip` is dropped unless
+  `ANALYTICS_KEEP_CLIENT_IP=1`. `reads` is a second table joined by the
+  rollup, never summed into `human_hits` / `bot_hits` / `pages`.
+- **Rollup v4, additive.** `lib/traffic_rollup.py` gains `load_reads` and
+  `vendor_rows`; `daily_rollup` emits `vendors[]` (one row per
+  `(key, verified, policy)`, null key kept, sorted by hits desc, capped at
+  40, all seven tier keys always) and `reads` — but ONLY on a day that has
+  reads, so a host below the floor and a quiet day are indistinguishable by
+  absence, which is the truthful state of both. Every v3 key is
+  byte-identical.
+- **`/admin/traffic`** (`pages/traffic.py`) — this host's own ledger behind
+  the control board's exact gate, failing CLOSED without Clerk and
+  `mark_hidden` at import. Vendor × day, vendor → tier for the picked day,
+  top paths per vendor, and the v3 headline numbers for the same day. Plain
+  tables, no charts, no interval callback; the day dropdown is the only
+  control. The page says in words what `verified` means: `n/a` is a vendor
+  publishing no IP ranges — Anthropic publishes none, so ClaudeBot is
+  ALWAYS `n/a` here, and that is a property of the vendor, not a defect on
+  this host.
+- **`DIVERGENCES.md` gains a `posture` fence** declaring
+  `deploy: release-branch`. Only that key: the rest of the 1.6.30 posture
+  item is not adopted here, and declaring `ai_bots` / `healthz` from the
+  tree rather than from the wire would be the aging copy the fence exists
+  to kill.
+- Tests 380 → 418. New: `tests/test_analytics_classifier.py` and
+  `tests/test_traffic_rollup_v4.py` (the spec's block cargo, byte-verbatim),
+  `tests/test_read_ledger.py`, `tests/test_traffic_page.py` and
+  `tests/test_cd_promotes_release.py`.
+
+#### Fixed
+
+- **`tests/test_proxy_scheme.py` names the browser lane.** Its end-to-end
+  `twitter:url` probe sent no User-Agent, and at the 2.8.0 floor an absent
+  UA is the crawler lane — the crawler document has no `twitter:url` at
+  all, so the test failed on "no tag" without saying anything about the
+  scheme. It sends `BROWSER_UA` now. This is a "satellites copy this
+  verbatim" file and the red hit every Flask fork in the fleet; either lane
+  can be the one you did not mean to test.
+
 ### Site — one fleet Python, and the live tools grow their contracts (2026-08-26)
 
 Consumes dash-documentation-boilerplate's `sync/SYNC-1.6.22-1.6.29.md`

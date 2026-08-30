@@ -1,9 +1,11 @@
 # DEPLOY-READINESS — excalidraw.2plot.dev
 
-**This host has never deployed.** The repo half of the gate-wave pass is
-complete (see `X402-SYNC-REPORT.md`); everything below is owner-side and
-cannot be done from a checkout. Work top to bottom — the ordering is
-load-bearing in three places, each flagged.
+**This host is live** — `/healthz` answered with `app=excalidraw` and a real
+build sha on 2026-08-29 — so §0 and §1 are history; the boxes below them are
+the ones still owed. The repo half of the gate-wave pass is complete (see
+`X402-SYNC-REPORT.md`); everything below is owner-side and cannot be done
+from a checkout. Work top to bottom — the ordering is load-bearing in three
+places, each flagged.
 
 Nothing here is optional-but-nice. Every unchecked box is a failure mode the
 fleet has already hit on some other host.
@@ -26,8 +28,33 @@ fleet has already hit on some other host.
 ## 1. Create the Render service
 
 - [ ] New → Blueprint → this repo. `render.yaml` declares everything:
-      `runtime: docker`, `plan: starter`, `branch: main`, `autoDeploy: true`,
-      `healthCheckPath: /healthz`, the custom domain, and the 1 GB disk.
+      `runtime: docker`, `plan: starter`, `branch: release` (see §1a),
+      `autoDeploy: true`, `healthCheckPath: /healthz`, the custom domain,
+      and the 1 GB disk.
+
+## 1a. Switch the service's deploy branch to `release` — **after** CD's
+first green promote
+
+`SYNC-1.6.22-1.6.35` item 13: CD now fast-forward-pushes each green run's
+sha to a `release` branch, and `render.yaml` declares `branch: release`. A
+push to `main` is a candidate, not a deploy.
+
+- [ ] **Wait for one green CD run on `main`** whose `deploy` job shows
+      `release → <sha> (fast-forward)`. Until `release` exists, pointing the
+      service at it would leave the host with no branch to build.
+- [ ] **If the service is Blueprint-managed:** re-sync the blueprint and
+      confirm the service's Branch reads `release`.
+- [ ] **If it is NOT Blueprint-managed** — which is the case whenever the
+      service was created by hand — `render.yaml`'s `branch:` is
+      documentation and **the dashboard's Branch field is the switch**:
+      Dashboard → the service → Settings → Build & Deploy → Branch →
+      `release`. Nothing in this repo can do it and no session may.
+- [ ] **Confirm it took, and the wire cannot tell you.** On the first
+      promoted run `main` and `release` hold the same sha, so
+      deploy-from-main and deploy-from-release produce an identical
+      `/healthz`. The discriminating observation is the NEXT push that goes
+      RED on main: `release` must not move and the live build must not
+      change. Watch one and tick this box then.
 - [ ] **Verify the disk actually attached** — Dashboard → the service →
       Disks. *A declared disk attaches nothing.* leaflet ran for weeks with
       the declaration and no disk: the app `mkdir`'d `/var/data` on the

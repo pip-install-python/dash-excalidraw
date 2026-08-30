@@ -151,7 +151,8 @@ python-dotenv>=1.0.0
 # silently reinstate the hidden attribute with no test able to see it. State
 # the floor where the guarantee is.
 #
-# 2.7.1 is the round-3 floor, and the same rule applies twice over:
+# 2.8.0 is the LEDGER floor (2026-08-29). The rungs below are history and
+# not the floor — the number this line states is:
 #
 #   2.7.0  dedups the prerender H1 — every page was serving TWO h1s to
 #          crawlers, the injected prerender header plus the doc body's own
@@ -162,6 +163,23 @@ python-dotenv>=1.0.0
 #          describedby) on both lanes plus Link headers, the
 #          Accept: text/plain ramp, and the representation digest — the
 #          surfaces the network's agent lane composes over.
+#   2.8.0  (1) ONE CLASSIFIER: `classify()` is public and it is the same
+#          registry robots.txt is rendered from, so what this site SAYS
+#          about a vendor and what it COUNTS agree. lib/analytics_tracker
+#          delegates to it and carries no User-Agent list of its own any
+#          more — the list it had filed ClaudeBot (Anthropic's TRAINING
+#          crawler) under "search" and counted every UA-less or library
+#          client as a person. (2) THE READ EVENT: `on_document_read`
+#          hands the app one row per corpus document served — tier, lane,
+#          vendor, verified, policy, verdict, status, bytes — which run.py
+#          registers into the tracker's `reads` table. (3) `Vary:
+#          User-Agent` on the lane-split responses. (4) VERIFIED IDENTITY:
+#          vendors publishing IP ranges are checked against them
+#          (`verified` / `unverified`; `n/a` where none are published —
+#          Anthropic publishes none, so ClaudeBot is always n/a).
+#
+# 2.8.1 (the resolved `policy` on every event) is NOT waited on: `policy`
+# is None until it ships and lib/traffic_rollup groups None as "default".
 #
 # EDITING THIS LINE IS THE DOCKER CACHE BUST, and that is the mechanism
 # rather than a side effect. The image's pip layer re-runs only when these
@@ -170,10 +188,10 @@ python-dotenv>=1.0.0
 # whatever version the image was first built with. Ship every dependency
 # upgrade as a bump here, and grep the NUMBER rather than the file — it
 # also lives in run.py's LLMS_PKG_FLOOR and in ci.yml's two asserts.
-dash-improve-my-llms[flask]>=2.7.1
-# dash-improve-my-llms[fastapi]>=2.7.1   # Dash 4.4+ FastAPI backend
-# dash-improve-my-llms[quart]>=2.7.1     # Dash 4.4+ Quart backend
-# dash-improve-my-llms[all]>=2.7.1       # all three
+dash-improve-my-llms[flask]>=2.8.0
+# dash-improve-my-llms[fastapi]>=2.8.0   # Dash 4.4+ FastAPI backend
+# dash-improve-my-llms[quart]>=2.8.0     # Dash 4.4+ Quart backend
+# dash-improve-my-llms[all]>=2.8.0       # all three
 
 # Background callbacks — /ai-agent's model call
 #

@@ -76,11 +76,15 @@ and dashboard STEPS and no value of any kind (audited 2026-08-25). Losing it
 to the convention would lose the only written record of what this deploy
 still owes.
 
-### 5. `cd.yml`'s verify gate is stricter than the template's
+### 5. `cd.yml`'s verify gate is stricter than the template's — RETIRED
 
-Template: `always() && needs.deploy.result != 'cancelled' && != 'skipped'`.
-Here: `always() && needs.deploy.result == 'success'` — which excludes those
-two **and** failure.
+*(Retired 2026-08-29 by convergence: template 1.6.35 adopted this gate. See
+"Retired" below. The entry is kept in place so older reports naming
+divergence 5 as live can be reconciled against it.)*
+
+Template (until 1.6.35): `always() && needs.deploy.result != 'cancelled' &&
+!= 'skipped'`. Here: `always() && needs.deploy.result == 'success'` — which
+excludes those two **and** failure.
 
 **Why:** when the build-match wait refuses because the site never served
 this run's build, running the live battery anyway certifies whatever build
@@ -193,8 +197,26 @@ retires.
 
 ## Retired
 
-*(none yet — retirements are marked here, not deleted, so that older
-reports describing a divergence as live can be reconciled against it.)*
+Retirements are marked here, not deleted, so that older reports describing
+a divergence as live can be reconciled against it.
+
+### 5. `cd.yml`'s verify gate — retired 2026-08-29 (convergence)
+
+Template 1.6.35 (`SYNC-1.6.22-1.6.35` item 13, sub-item a2) moved its own
+verify gate to `needs.deploy.result == 'success'` after run 33262495272
+showed the permissive form doing exactly what this fork's 2026-08-21
+measurement predicted: a failed promote let `verify` run and report GREEN
+against the PREVIOUS build. The template reached this fork's rule from the
+other side, so there is no difference left to record.
+
+The form here is now the template's verbatim — `needs.deploy.result ==
+'success'`, without the `always() &&` prefix this fork carried. The two are
+equivalent (an `if:` with no status function is evaluated as `success() &&
+<expr>`, and `needs.deploy.result == 'success'` already excludes every
+non-success), and `tests/test_cd_promotes_release.py` compares the string
+exactly, so the shorter form is the one that is now pinned. **The
+substance — verify never runs on a deploy that did not succeed — is
+unchanged and a sync still must not relax it.**
 
 ## Byte-owned paths
 
@@ -235,4 +257,25 @@ Divergence 2 makes a byte-level claim on `.claude/CLAUDE.md`, which is not a
 not one either. The block is empty by decision, not by omission.
 
 ```yaml byte-owned
+```
+
+## Declared posture
+
+What this host SERVES, declared here rather than in the hub's own seeded
+table, so the repo that can keep it true is the one that holds it. Shape is
+validated by `tests/test_claude_kit.py`; absence of the fence, and absence
+of any key inside it, both SKIP rather than fail.
+
+**Only `deploy:` is declared.** The rest of the 1.6.30 posture item
+(`ai_bots:`, `healthz:`, `runtime:`) is NOT adopted here yet — those keys
+want a measurement on the wire per path, and declaring them from the tree
+would be exactly the aging copy the fence exists to kill. An undeclared key
+means "not measured here", never "the default is fine".
+
+`deploy: release-branch` says CD promotes `main` to `release` on a green
+matrix and Render deploys `release` (`SYNC-1.6.22-1.6.35` item 13). Absence
+of the key would read as "this host still watches main".
+
+```yaml posture
+deploy: release-branch
 ```

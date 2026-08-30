@@ -1,10 +1,13 @@
 # Render Blueprint — dash-excalidraw docs (one web service, docker runtime),
 # fronted by https://excalidraw.2plot.dev.
 #
-# THIS HOST HAS NEVER DEPLOYED. Everything below is a declaration; nothing in
-# this file creates a service, attaches a disk, or sets a variable on a
-# running instance. The owner-side steps that do are listed in
-# DEPLOY-READINESS.md at the repo root — work through that file, not this one.
+# THIS HOST IS LIVE (first measured on the wire 2026-08-29: /healthz answers
+# with app=excalidraw and a real build sha), but everything below is still
+# only a DECLARATION — nothing in this file creates a service, attaches a
+# disk, sets a variable on a running instance, or switches the deploy branch
+# of a service that is not Blueprint-managed. The owner-side steps that do
+# are listed in DEPLOY-READINESS.md at the repo root — work through that
+# file, not this one.
 #
 # TWO RULES THAT HAVE COST THE FLEET REAL OUTAGES, both worth re-reading
 # before editing anything here:
@@ -93,7 +96,11 @@ services:
     # analytics — and a disk-bearing service cannot be free anyway.
     plan: starter
     region: oregon
-    branch: main
+    # `release` is written ONLY by CD (.github/workflows/cd.yml, job
+    # `deploy`: a fast-forward push of the run's sha after the matrix is
+    # green). A push to main is not a deploy. autoDeploy stays on: Render
+    # reacting to this branch IS the mechanism (1.6.35).
+    branch: release
     autoDeploy: true
     # /healthz is the network convention (lib/health.py) and is excluded from
     # traffic counts, so it makes a cleaner check than /. Its `app` field says
