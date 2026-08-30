@@ -1,0 +1,277 @@
+{
+ "components": [
+  {
+   "description": "DashExcalidraw is an Excalidraw drawing canvas bound to Dash via a\nJSON-safe prop surface. See the per-prop docs above for the full\ncatalog; see the README for the command/event round-trip pattern used\nfor imperative actions like exports.",
+   "name": "DashExcalidraw",
+   "props": [
+    {
+     "default": "",
+     "description": "Unique ID to identify this component in Dash callbacks.",
+     "name": "id",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
+     "description": "Subset of Excalidraw `UIOptions` that is JSON-serializable. Use\nthis to toggle individual canvas actions, show/hide the welcome\nscreen, etc.",
+     "name": "UIOptions",
+     "required": false,
+     "type": "dict"
+    },
+    {
+     "default": "",
+     "description": "Full serializable app state (view background, zoom, scroll, grid\nmode, zen mode, theme, active tool, \u2026). Read-only from Python.",
+     "name": "appState",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Focus the canvas on mount.\n@,default,true",
+     "name": "autoFocus",
+     "required": false,
+     "type": "bool"
+    },
+    {
+     "default": "",
+     "description": "Write to this prop from a Python callback to dispatch an imperative\naction into Excalidraw. Shape:\n\n```python\n{\"id\": \"unique-string\", \"type\": \"updateScene\", \"payload\": {...}}\n```\n\nSupported `type` values:\n - `updateScene` / `resetScene` / `addFiles`\n - `scrollToContent` / `setActiveTool` / `setToast` / `toggleSidebar`\n - `updateLibrary`\n - `exportToSvg` / `exportToBlob` / `exportToCanvas`\n\nEach dispatch is de-duplicated by `id`, and the component clears\nthe prop (sets it to `None`) once the action completes so React\nre-renders do not re-fire.",
+     "name": "command",
+     "required": false,
+     "type": "dict"
+    },
+    {
+     "default": "",
+     "description": "Whether Excalidraw listens to wheel-scroll events on the canvas.\n@,default,true",
+     "name": "detectScroll",
+     "required": false,
+     "type": "bool"
+    },
+    {
+     "default": "",
+     "description": "Current Excalidraw element array. Written via setProps on every\nscene change \u2014 read-only from Python callbacks.",
+     "name": "elements",
+     "required": false,
+     "type": "list of objectOf"
+    },
+    {
+     "default": "",
+     "description": "Same envelope as `serializedData`, but every `files[*].dataURL`\nthat still holds an inline `data:` URI is replaced with `null`.\nExternal URLs (those dispatched via the `replaceFiles` command)\nare retained as-is. Persist this variant to avoid paying the\nbase64 cost; inline bytes can be rehydrated later via\n`dash_excalidraw.helpers.restore_inline_files`.",
+     "name": "externalizedSerializedData",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
+     "description": "Map of binary file entries (image id -> {dataURL, mimeType, ...}).\nRead-only from Python.",
+     "name": "files",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Snap to grid and draw the grid background.\n@,default,false",
+     "name": "gridModeEnabled",
+     "required": false,
+     "type": "bool"
+    },
+    {
+     "default": "",
+     "description": "When true, keyboard shortcuts work even when the canvas is not\nfocused. Turn off if your Dash app has other inputs that might\nconflict.\n@,default,true",
+     "name": "handleKeyboardGlobally",
+     "required": false,
+     "type": "bool"
+    },
+    {
+     "default": "",
+     "description": "CSS height of the canvas container. Excalidraw fills its parent,\nso this is the number to change when the canvas looks too short.\n@,default,\"600px\"",
+     "name": "height",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
+     "description": "When `true` (default), injects CSS that hides Excalidraw's built-in\n\"Excalidraw links\" menu group (GitHub / Discord / Twitter). Set to\n`false` if you actually want those links visible to users.",
+     "name": "hideExcalidrawLinks",
+     "required": false,
+     "type": "bool"
+    },
+    {
+     "default": "",
+     "description": "Initial scene contents passed to Excalidraw on mount. Shape:\n`{elements, appState, files, libraryItems, scrollToContent}`.\nUpdating this prop after mount has no effect \u2014 use `command` with\n`type=\"updateScene\"` to change the scene imperatively.",
+     "name": "initialData",
+     "required": false,
+     "type": "dict"
+    },
+    {
+     "default": "",
+     "description": "When `true`, the wrapper calls `event.preventDefault()` on every\n`lastLinkOpen` event so Python can handle the click itself\n(typically by opening a `dmc.Drawer`). Default `false` \u2014 links\nopen in a new tab normally.",
+     "name": "interceptLinkOpens",
+     "required": false,
+     "type": "bool"
+    },
+    {
+     "default": "",
+     "description": "Renders the \"currently-editing\" collaborator UI. You'll also need\nto feed `appState.collaborators`; the wrapper does not bundle a\ntransport layer.\n@,default,false",
+     "name": "isCollaborating",
+     "required": false,
+     "type": "bool"
+    },
+    {
+     "default": "",
+     "description": "UI language code (e.g. `en`, `fr-FR`, `zh-CN`).\n@,default,\"en\"",
+     "name": "langCode",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
+     "description": "Result of the most recent export command:\n`{timestamp, id, type, result, error?}`. Match `id` against the\ncommand you dispatched to correlate responses.",
+     "name": "lastExport",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Fires when the wrapper's drop handler intercepts a drop that\nExcalidraw itself doesn't accept (non-image files, or any multi-\nfile drop). Payload:\n\n  {\n    timestamp,\n    files: [{name, mimeType, dataURL, size}, ...],\n    dropPoint: {x, y},                  # scene coords\n    placeholderIds: [elemId, ...],      # one id per non-image file,\n                                        # pointing at the rectangle we\n                                        # placed on the canvas so you\n                                        # can update its `link` after\n                                        # upload.\n  }",
+     "name": "lastExternalDrop",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Fires when one or more new file ids appear in `files` with an\ninline `data:` dataURL. Payload:\n\n  {\n    timestamp,\n    fileId, mimeType, dataURL, size,   # first new file (back-compat)\n    files: [\n      {fileId, mimeType, dataURL, size},\n      ...                              # every new file in this change\n    ],\n  }\n\nSingle-file callbacks can keep reading `event['fileId']`; batch\ncallbacks iterate `event['files']`. `size` is decoded byte count.",
+     "name": "lastFileAdded",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Snapshot of the last library change `{timestamp, items}`.",
+     "name": "lastLibraryChange",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Snapshot of the last link-open event `{timestamp, elementId, url}`\n\u2014 fired when a user Cmd/Ctrl-clicks an element with a hyperlink.",
+     "name": "lastLinkOpen",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Snapshot of the last clipboard paste `{timestamp, data}`. The\nwrapper cannot cancel the paste from Python; if you need to\nintercept, clean up in a follow-up callback that modifies scene\nstate afterward.",
+     "name": "lastPaste",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Snapshot of the last pointer-down event:\n`{timestamp, activeTool, pointer: {x, y}}`.",
+     "name": "lastPointerDown",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Throttled pointer-move snapshot `{timestamp, pointer, button,\npointersMap}`. Throttled by `pointerMoveThrottleMs` (default 50 ms).",
+     "name": "lastPointerMove",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Snapshot of the last pointer-up event:\n`{timestamp, activeTool, pointer: {x, y}}`.",
+     "name": "lastPointerUp",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Throttled scroll/zoom snapshot `{timestamp, scrollX, scrollY}`.",
+     "name": "lastScrollChange",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Optional URL appended to the \"Browse Library\" button in the\nsidebar. When unset Excalidraw uses its own default.",
+     "name": "libraryReturnUrl",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
+     "description": "Drawing name \u2014 appears in the top bar and in serialized export\nfilenames.",
+     "name": "name",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
+     "description": "Debounce interval for `lastPointerMove` writes (milliseconds).\n@,default,50",
+     "name": "pointerMoveThrottleMs",
+     "required": false,
+     "type": "number"
+    },
+    {
+     "default": "",
+     "description": "Monotonic scene version from `excalidrawAPI.getSceneVersion()`.\nUseful for change detection without diffing element arrays.",
+     "name": "sceneVersion",
+     "required": false,
+     "type": "number"
+    },
+    {
+     "default": "",
+     "description": "Debounce interval for `lastScrollChange` writes (milliseconds).\n@,default,100",
+     "name": "scrollThrottleMs",
+     "required": false,
+     "type": "number"
+    },
+    {
+     "default": "",
+     "description": "JSON string of the canonical Excalidraw serialized envelope\n`{type, version, source, elements, appState, files}`. Suitable to\npass to `dash.dcc.Store` and later restore via `initialData`.",
+     "name": "serializedData",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
+     "description": "Canvas color theme.\n@,default,\"light\"",
+     "name": "theme",
+     "required": false,
+     "type": "one of 'light', 'dark'"
+    },
+    {
+     "default": "",
+     "description": "Controls which URLs may be embedded inside Excalidraw frames.\nPass `true` to allow all, `false` to deny all, or a list of\ndomain-glob strings (e.g. `[\"*.youtube.com\", \"excalidraw.com\"]`)\nwhich the wrapper compiles to case-insensitive RegExps.",
+     "name": "validateEmbeddable",
+     "required": false,
+     "type": "bool | list of string"
+    },
+    {
+     "default": "",
+     "description": "View-only mode: disables drawing tools; pan/zoom still available.\n@,default,false",
+     "name": "viewModeEnabled",
+     "required": false,
+     "type": "bool"
+    },
+    {
+     "default": "",
+     "description": "CSS width of the canvas container.\n@,default,\"100%\"",
+     "name": "width",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
+     "description": "Zen mode hides most of the chrome for a distraction-free canvas.\n@,default,false",
+     "name": "zenModeEnabled",
+     "required": false,
+     "type": "bool"
+    }
+   ]
+  }
+ ],
+ "generated": "2026-08-30"
+}

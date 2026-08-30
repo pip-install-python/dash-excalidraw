@@ -120,6 +120,10 @@ component half. **Not deployed** — the owner holds the push.
   when present and falls back to the generated component class's docstring,
   which is tracked, ships in the wheel, and carries the same catalogue in
   Dash's standard "Keyword arguments:" format. Same 38 props either way.
+  Superseded within the day by template 1.6.41's three-source loader, taken
+  as cargo: `metadata.json` → the committed `api_metadata.json` extract
+  (`scripts/build_api_metadata.py`, 11 KB, tracked) → the docstrings. All
+  three roads produce the same 38 props here.
 
 ### Site — the ledger row, and `release` becomes the deploy branch (2026-08-29)
 

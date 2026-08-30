@@ -254,6 +254,34 @@ Two adaptations, both because the template's own values are not this fork's:
 The two aside pins and the excluded-links positive control name this fork's
 own pages (`/basic`, `/events`) instead of the template's.
 
+### 13. `dash_excalidraw/api_metadata.json` is committed; `metadata.json` is not
+
+`/api` (template 1.6.38, contract 7) renders from the component package's
+props. This repo is the component (divergence 1), and its
+`dash-generate-components` artifact `dash_excalidraw/metadata.json` is
+**gitignored on purpose** — `scripts/check_release.py` asserts it is absent
+from the built wheel, because it is a build INPUT, not a runtime file.
+
+So the committed extract is the production source: `api_metadata.json`,
+written by `scripts/build_api_metadata.py` (template 1.6.41) in
+`lib.api_reference.load_package`'s own output shape, 11 KB against the
+generator's artifact, tracked and shipped.
+
+**Why this is recorded rather than obvious:** reading `metadata.json` alone
+made `/api` document 38 props on a machine that had run `npm run build` and
+nothing at all in CI or in the production image — green locally, red on all
+four pytest legs of CD run 33328319735, and an empty `## dash_excalidraw`
+section on the wire while build dd9747b served. The page rendered rather
+than crashing, so on the browser lane and the machine lane both it was a
+silent emptiness.
+
+**Regenerate whenever a prop changes:** `python scripts/build_api_metadata.py`,
+then commit `dash_excalidraw/api_metadata.json`. Its `generated` date is
+/api's sitemap lastmod, so the date and the content move together.
+`tests/test_nav_contract.py::test_the_api_page_does_not_depend_on_a_gitignored_build_artifact`
+holds all three ends — the extract is tracked and not ignored, the
+docstrings alone suffice, and the two agree on every prop name.
+
 ## Retired
 
 Retirements are marked here, not deleted, so that older reports describing

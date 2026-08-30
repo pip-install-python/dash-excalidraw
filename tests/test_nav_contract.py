@@ -280,34 +280,73 @@ def test_the_api_page_is_registered_because_this_repo_ships_a_component(app_modu
     assert [c["name"] for c in comps["components"]] == ["DashExcalidraw"]
 
 
-def test_the_api_page_does_not_depend_on_a_gitignored_build_artifact():
-    """The regression this test exists for, measured on run 33328319735.
+def test_the_api_page_does_not_depend_on_a_gitignored_build_artifact(tmp_path):
+    """The regression this test exists for, measured on CD run 33328319735.
 
     `dash_excalidraw/metadata.json` is a `dash-generate-components`
     byproduct: gitignored on purpose, and `scripts/check_release.py` asserts
     it is absent from the built wheel. So it exists ONLY on a machine that
     has run `npm run build` — never in a CI checkout, never in the
-    production image. Reading it alone made /api document 38 props on the
-    author's laptop and NOTHING anywhere else: green locally, red on all
-    four pytest legs in CD, and an empty `## dash_excalidraw` section on the
-    wire. The generated stub is tracked and IS in the wheel, so the
-    docstring is the source that always exists.
+    production image. When /api read it and nothing else, the page
+    documented 38 props on the author's laptop and NOTHING anywhere else:
+    green locally, red on all four pytest legs, and an empty
+    `## dash_excalidraw` section on the wire.
 
-    This pin reads the classes DIRECTLY, so it passes with or without the
-    artifact present — which is the whole point.
+    Template 1.6.41 answers it with three sources. This pin holds all three
+    ends, because the defect was that only ONE of them existed where it
+    mattered:
+
+      1. the committed extract is really committed (the production path),
+      2. the docstrings alone are sufficient (the path with no JSON at all),
+      3. the extract agrees with the generator's own artifact.
     """
+    import subprocess
+
     import dash_excalidraw
 
     from lib import api_reference
+    from lib.constants import API_PACKAGES
 
-    comps = api_reference._from_classes(dash_excalidraw)
-    assert [c["name"] for c in comps] == ["DashExcalidraw"]
-    props = {p["name"]: p for p in comps[0]["props"]}
-    assert len(props) >= 30, sorted(props)
-    assert props["id"]["type"] == "string"
-    assert "setProps" not in props
-    assert comps[0]["props"][0]["name"] == "id", "id sorts first"
-    assert props["command"]["description"], "descriptions survived the parse"
+    pkg_dir = Path(dash_excalidraw.__file__).resolve().parent
+    slim = pkg_dir / api_reference.SLIM_METADATA
+
+    # 1. THE PRODUCTION PATH. The extract must be tracked — this is the one
+    #    the image and every CI checkout actually read.
+    assert slim.is_file(), f"{slim.name} missing — run scripts/build_api_metadata.py"
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", str(slim.relative_to(REPO))],
+        cwd=REPO, capture_output=True,
+    )
+    assert tracked.returncode == 0, (
+        f"{slim.name} is not tracked by git — /api renders empty everywhere "
+        "except a machine that has run `npm run build`, which is the exact "
+        "defect this file exists to close"
+    )
+    ignored = subprocess.run(
+        ["git", "check-ignore", str(slim.relative_to(REPO))],
+        cwd=REPO, capture_output=True,
+    )
+    assert ignored.returncode != 0, f"{slim.name} is gitignored"
+
+    # 2. THE NO-JSON PATH. Hook-based packages ship no metadata at all, and
+    #    a fresh clone that has never built has neither file.
+    from_docs = api_reference._from_docstrings(dash_excalidraw)
+    assert [c["name"] for c in from_docs] == ["DashExcalidraw"]
+    doc_props = {p["name"]: p for p in from_docs[0]["props"]}
+    assert len(doc_props) >= 30, sorted(doc_props)
+    assert "setProps" not in doc_props
+    assert from_docs[0]["props"][0]["name"] == "id", "id sorts first"
+    assert doc_props["command"]["description"], "descriptions survived the parse"
+
+    # 3. THE TWO SOURCES AGREE. A stale extract is the failure mode the
+    #    committed file introduces, so compare prop NAMES against the
+    #    generator's artifact when this machine happens to have it.
+    slim_names = {p["name"] for c in api_reference.load_package(API_PACKAGES[0])
+                  for p in c["props"]}
+    assert slim_names == set(doc_props), (
+        "the committed extract and the shipped docstrings disagree — "
+        "re-run scripts/build_api_metadata.py"
+    )
 
 
 def test_missing_package_is_reported_not_raised():
