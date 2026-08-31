@@ -621,7 +621,11 @@ img[alt=logo] { width: 100%; }
    table class a page-scoped element selector still wants named explicitly;
    measured on the template's /examples/directives at 391px: a 457px table
    in a 488px document. */
-table.m2d-block-kwargs {
+table.m2d-block-kwargs,
+/* (1.6.42) `.. props::`-style directive tables render nested inside a
+   wrapper rather than carrying a table class of their own, so the rule is
+   reached through the block. Same recipe, third selector. */
+.m2d-block-props table {
     display: block;
     width: max-content;
     max-width: 100%;
@@ -679,4 +683,22 @@ code.m2d-codespan,
 .mantine-AppShell-main pre {
     overflow-x: auto;
     max-width: 100%;
+}
+
+/* Skip link (1.6.41, adopted from muischeduler): the first tab stop, off-
+   screen until keyboard focus, then pinned top-left above the header. */
+.skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 9999;
+    background: var(--mantine-primary-color-filled);
+    color: var(--mantine-color-white);
+    padding: 8px 14px;
+    border-radius: 0 0 8px 0;
+    font-weight: 600;
+    text-decoration: none;
+}
+.skip-link:focus {
+    left: 0;
 }

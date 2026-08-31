@@ -6,6 +6,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site — the 1.6.41 remainder, and the caller for the cargo (2026-08-31)
+
+Consumes `sync/SYNC-1.6.22-1.6.42.md` item 18 at template 4ac02e0, with the
+a33ecfe amendment to contract highlight (7). This is the round that closes
+the seam this fork reported from inside: it had `slim_generated_on()` and
+nothing called it.
+
+#### Added
+
+- **`/api` carries a `lastmod`** — the committed extract's `generated` stamp,
+  reaching the sitemap through `api_reference.slim_generated_on()`. `/api`
+  was the one page in a 14-entry sitemap with no lastmod while the extract
+  sat on disk. `/api` and `/changelog` now register the FULL machine record
+  (visibility, tier, lastmod), not just a module `LLMS_DOC`.
+- **A row-parity pin for `/api`, with a mutation check.** Four mechanisms
+  produce an empty `/api` at 200; a heading pin passes on all four. This one
+  asserts ROWS and row CONTENT across the machine lane, the received HTML,
+  the prerender block inside it, and the component tree React mounts — and a
+  second test breaks the loader to prove the pin can go red.
+- **A skip link** as the first tab stop, and **short sidebar labels**
+  (`nav:` frontmatter) available per page.
+- **`tests/test_layout_nesting.py`** — `parse()` returns a LIST, and
+  `children=[hero, parse(...)]` renders the page EMPTY with a green suite
+  (React #31; the prerender reads the markdown, so every machine-lane check
+  stays green). Walk + non-vacuity fixture + registry-derived positive
+  control + source pin.
+- **`smoke_live.py` gains three checks**: `HEAD /healthz answers what GET
+  answers`, `GITHUB_URL resolves`, and a `/` dedup so a broken home page
+  stops printing three identical failures.
+
+#### Fixed
+
+- **The battery was checking the wrong hidden paths.**
+  `network_smoke.HIDDEN_DOC_PATHS` still held the template's canary
+  (`/admin/llms.txt`, `/analytics/llms.txt`) — neither is a page here — so it
+  probed two paths that 404 because nothing serves them, a vacuous pass,
+  while never checking the two admin pages this site actually has. Now the
+  real ones, pinned against the registry.
+- **`scripts/audit_links.py` drove a bare in-process test client.** A bare
+  client sends `Werkzeug/x.y`, which is the crawler lane at the 2.8 floor, so
+  the audit fetched the crawler document for every page and would report this
+  site's own `mark_hidden` admin pages as broken links. Its `AUDIT_UA` was
+  crawler-shaped too. External requests keep that identity; in-process ones
+  now name the browser lane.
+- The header's identity (`WORDMARK`, `LOGO_ASSET`, `LOGO_STYLE`,
+  `WORDMARK_COLOR`, `WORDMARK_VISIBLE_FROM`) moves to `lib/constants.py`, so
+  `components/header.py` holds no fork content and is byte-identical to the
+  template.
+- The changelog parser accepts every heading shape the fleet writes — em
+  dash, en dash, no brackets, prose-first, and words where the date goes.
+  This repo's own `## [0.1.0] — unreleased` now reads as a note rather than a
+  date, and `/changelog` omits its lastmod honestly instead of inventing one.
+
+Tests 446 → 468.
+
 ### Site — the wall comes down, and navigation comes from one registry (2026-08-30)
 
 Consumes dash-documentation-boilerplate's `sync/SYNC-1.6.22-1.6.38.md` items

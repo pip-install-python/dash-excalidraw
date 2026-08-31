@@ -20,11 +20,24 @@ class _App:
         self.server = server
 
 
+# A named UA on a synthetic app that has no dimll middleware changes no
+# behaviour here — this route is registered on a bare Flask app, so there is
+# no lane to get wrong. It is set so the fleet's `.test_client()` pin holds
+# by construction rather than by exception, and so a future reader copying
+# this fixture inherits the habit rather than the omission.
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+
 @pytest.fixture
 def route_client():
     server = flask.Flask(__name__)
     agent_key.register_agent_key_route(_App(server), "flask")
-    return server.test_client()
+    client = server.test_client()
+    client.environ_base["HTTP_USER_AGENT"] = BROWSER_UA
+    return client
 
 
 def test_anonymous_gets_204_with_no_store(route_client):

@@ -49,6 +49,7 @@ APP_TITLE = SITE_BRAND
 # run past every platform's truncation point.
 SITE_SHORT_NAME = "dash-excalidraw"
 
+
 # Prefixed to every per-page title (`pages/markdown.py`, `pages/home.py`), and
 # therefore NOT only a browser-tab string: Dash passes the page title straight
 # into `og:title` and `twitter:title` (dash/_pages.py `_page_meta_tags`), so
@@ -68,6 +69,40 @@ SITE_SHORT_NAME = "dash-excalidraw"
 PAGE_TITLE_PREFIX = f"{SITE_SHORT_NAME} | "
 
 PRIMARY_COLOR = "violet"
+
+# The header's mark, lifted out of components/header.py (template 1.6.41) so
+# that file holds no fork content: the wordmark text, the asset under
+# assets/, its box, the wordmark colour, and the breakpoint the text appears
+# from. The header's aria-label derives from WORDMARK too, so the accessible
+# name can never disagree with the visible one.
+#
+# PORTED, not copied — three of the five differ from the template's here:
+#   WORDMARK is SITE_SHORT_NAME on purpose. The template separates them
+#     ("Dash Docs" beside "Dash Documentation Boilerplate") because its long
+#     name does not fit a header. This package's name IS short and IS the
+#     mark; splitting them would create two strings to keep in step for no
+#     gain, and llms-2plot-dev's bug was a hardcoded wordmark, not a shared
+#     one.
+#   LOGO_ASSET is this fork's own artwork (scripts/make_brand_assets.py, the
+#     same source as the favicon set). The 144px variant is served rather
+#     than the 512px one so a 36px slot is not downloading 56 KB.
+#   WORDMARK_COLOR follows PRIMARY_COLOR rather than a hex literal: this
+#     fork already themed the mark with its primary, and a second encoding
+#     of the same colour is the drift the constants block exists to stop.
+#     (header.py passes it to `c=` with no fallback, so it must be a real
+#     value, never None.)
+WORDMARK = SITE_SHORT_NAME
+LOGO_ASSET = "excalidraw-mark-144.png"
+LOGO_STYLE = {"height": "36px", "width": "36px"}
+WORDMARK_COLOR = PRIMARY_COLOR  # header.py passes this straight to `c=`
+# Hidden below 36em (576px) — every phone in portrait. "dash-excalidraw" is a
+# long wordmark next to a burger, a logo, a search control and the theme
+# toggle, and on an xs viewport it was what pushed the row over. visibleFrom
+# renders a display:none media query, which REMOVES the node from the
+# accessibility tree — which is why the anchor carries its own aria-label
+# (the 1.6.41 pairing rule: hide with visibleFrom/hiddenFrom, never opacity).
+WORDMARK_VISIBLE_FROM = "xs"
+
 APP_VERSION = "0.1.0"
 
 # ---------------------------------------------------------------------------

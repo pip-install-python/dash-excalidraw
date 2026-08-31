@@ -100,7 +100,25 @@ try:
 except Exception:  # pragma: no cover — running outside a checkout
     _INTERNAL_UA = "2plot-internal/1.0 (+https://2plot.ai/docs/satellite-analytics)"
 
+# EXTERNAL requests identify this tool to third-party hosts. Deliberately
+# crawler-shaped: a link auditor should say what it is to someone else's
+# server.
 AUDIT_UA = f"Mozilla/5.0 (compatible; link-audit/1.0) {_INTERNAL_UA}"
+
+# IN-PROCESS requests are a different lane and must say so (notes 70/74,
+# and this file was the surface the fleet's `.test_client()` grep MISSED —
+# it passes that grep on the `headers=` above while every client.get below
+# was bare). A bare Werkzeug client sends `Werkzeug/x.y`, and AUDIT_UA is
+# itself crawler-lane (no engine token) — either way dimll >= 2.8 serves the
+# CRAWLER document, so `mark_hidden` admin pages 404 and this audit reports
+# its own site's admin links as broken. Engine token FIRST, internal token
+# after (a substring match, so the run is still counted nowhere).
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 "
+    f"{_INTERNAL_UA} link-audit"
+)
+_BROWSER_HEADERS = {"User-Agent": BROWSER_UA}
 
 
 def check_external(url: str, cache: Dict[str, int], _retrying: bool = False) -> int:
@@ -174,7 +192,7 @@ def main() -> int:
     total = 0
 
     for page, doc_url in docs:
-        response = client.get(doc_url)
+        response = client.get(doc_url, headers=_BROWSER_HEADERS)
         if response.status_code != 200:
             findings["internal"].append((doc_url, doc_url, f"document itself {response.status_code}"))
             continue
@@ -202,14 +220,14 @@ def main() -> int:
                 if not path.startswith("/"):
                     findings["internal"].append((page, target, "relative path, ambiguous in llms.txt"))
                     continue
-                probe = client.get(path)
+                probe = client.get(path, headers=_BROWSER_HEADERS)
                 if probe.status_code != 200:
                     findings["internal"].append((page, target, f"HTTP {probe.status_code}"))
                 continue
 
             host = parsed.netloc
             if host == base_host:
-                probe = client.get(parsed.path or "/")
+                probe = client.get(parsed.path or "/", headers=_BROWSER_HEADERS)
                 status = "resolves once deployed" if probe.status_code == 200 else f"HTTP {probe.status_code} even locally"
                 findings["self-host"].append((page, target, status))
             elif host in network_hosts:

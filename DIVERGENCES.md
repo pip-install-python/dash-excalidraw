@@ -168,7 +168,7 @@ with `test_every_job_declaring_a_python_is_classified` as the guard on the
 guard — job-scoping means an unlisted job is simply not read, which is right
 for the package matrix and wrong for a job somebody forgot to classify.
 
-### 9. `scripts/network_smoke.py` carries an SSL context the template's does not
+### 9. `scripts/network_smoke.py` carries an SSL context the template's does not — RETIRED
 
 The fork's `fetch()` builds a certifi-backed `ssl.SSLContext` and passes it
 to `urlopen`; template 1.6.29's copy of the same file does not, and calls
@@ -190,12 +190,25 @@ is the fleet's OTHER live-host reader and was the one still naked.
 `tests/test_network_smoke.py::
 test_every_network_smoke_urlopen_passes_the_ssl_context` is the source pin.
 
-**Status:** AHEAD of the template, not divergent from it by intent — filed
-upward with this round's report as a template-class finding. A sync must not
-restore the naked `urlopen`; when the template adopts the context, this entry
-retires.
+**Status: RETIRED 2026-08-31 by convergence.** Template 1.6.30 adopted the
+certifi context in `scripts/network_smoke.py` (credited to muicharts, whose
+Mac read a healthy production host as 0/12 CERTIFICATE_VERIFY_FAILED — the
+outage this fork's entry predicted without having measured it). Verified at
+template 4ac02e0: both trees now build the context and pass it to `urlopen`.
+There is no difference left to record. The source pin
+`tests/test_network_smoke.py::test_every_network_smoke_urlopen_passes_the_ssl_context`
+stays — it is what keeps the convergence true.
 
-### 10. The sidebar marks `auth`-tier pages with a lock
+### 10. The sidebar marks `auth`-tier pages with a lock — RETIRED
+
+*(Retired 2026-08-31 by convergence: template 1.6.41 adopted this, crediting
+excalidraw, and generalised it — `_LOCK_LABELS` now covers `admin` as well as
+`auth`, and the label comes from the tier rather than being hardcoded. The
+DMC `title=` trap this entry recorded is in the template's own docstring now.
+`components/navbar.py` here is byte-identical to template 4ac02e0, so the
+file this entry protected holds no fork content any more. Text below kept as
+written.)*
+
 
 Template 1.6.38's navigation contract hides `hidden`-tier pages from the
 sidebar and search and says nothing about `auth`. `components/navbar.py`'s
@@ -232,7 +245,18 @@ is what the item's contract actually requires (the header icon, Resources and
 `sameAs` all read it). `tests/test_nav_contract.py` asserts
 `GITHUB_URL in SAME_AS`, not equality, so the pin holds either way.
 
-### 12. `tests/test_nav_contract.py` narrows the Resources ban and inverts the API pin
+### 12. `tests/test_nav_contract.py` narrows the Resources ban and inverts the API pin — RETIRED
+
+*(Retired 2026-08-31 by convergence, both halves. Template 1.6.41 narrowed
+the Resources ban to the owner's own links — crediting excalidraw — and
+added `test_an_upstream_on_github_is_allowed_in_resources`; and it replaced
+the `API_PACKAGES == []` pin with `test_api_page_follows_api_packages`,
+which BRANCHES on whether a host declares a package, so no fork has to
+invert it any more. This fork's copy now derives its aside and
+excluded-links controls from the registry too, so none of the three
+adaptations remain. What this file still carries beyond the template is
+listed in the byte-owned fence, not here. Text below kept as written.)*
+
 
 Two adaptations, both because the template's own values are not this fork's:
 
@@ -281,6 +305,40 @@ then commit `dash_excalidraw/api_metadata.json`. Its `generated` date is
 `tests/test_nav_contract.py::test_the_api_page_does_not_depend_on_a_gitignored_build_artifact`
 holds all three ends — the extract is tracked and not ignored, the
 docstrings alone suffice, and the two agree on every prop name.
+
+### 14. `scripts/smoke_live.py` is PORTED, and its HEAD check sits after the healthz GET
+
+Item 18 adds four things to the live tool: a `method=` kwarg on `fetch`, a
+`GITHUB_URL resolves` check, a `/`-dedup on `page_urls`, and
+`HEAD /healthz answers what GET answers`. All four are here. The file is a
+PORT, not a copy, for three reasons:
+
+1. **The 1.6.29 rule.** `tests/test_smoke_live.py` is fork-owned and stubs
+   `fetch` eleven times. Copying the file breaks every stub with a
+   `TypeError` on the new `method` kwarg — which is exactly what happened
+   on the first attempt in this round. The stubs gained `method="GET"` in
+   the same change; the one stub deliberately left on the old signature is
+   `legacy`, which exists to prove `wake()` tolerates a pre-1.6.2x stub.
+2. **The HEAD check's position differs.** The template computes `status`
+   from `/healthz` before the sitemap block; this fork's copy fetches the
+   sitemap first, so dropping the template's block in verbatim compared
+   `HEAD /healthz` against `GET /sitemap.xml` — and would have PASSED, both
+   being 200. The check is placed after this file's own healthz GET.
+3. **The posture comments are this fork's** (item 15): the template's copy
+   still says "2.3.3 moved ClaudeBot to Disallow" and spells
+   `block_ai_training=False`, the literal item 15's own detect greps for.
+   Restoring those would regress two things this fork fixed.
+
+### 15. `scripts/network_smoke.py`'s hidden paths are this host's, not the canary
+
+`HIDDEN_DOC_PATHS` held the template's `/admin/llms.txt` and
+`/analytics/llms.txt` until 1.6.42 — neither is a page here. The battery was
+probing two paths that 404 because nothing serves them (a vacuous pass) and
+never checking the two admin pages this site really has. Now
+`/admin/control-board/llms.txt` and `/admin/traffic/llms.txt`, pinned against
+the registry by `test_battery_hidden_paths_match_the_registry`, which is what
+stops it drifting again. This converges with template 4ac02e0, which set the
+same two values.
 
 ## Retired
 
@@ -344,6 +402,15 @@ Divergence 2 makes a byte-level claim on `.claude/CLAUDE.md`, which is not a
 not one either. The block is empty by decision, not by omission.
 
 ```yaml byte-owned
+# PORTED, not copied — the fan-out must not overwrite these (item 18, and
+# the drop's rule that a port belongs in this fence in the same commit).
+# See divergences 14 and 15, and the identity/pin notes above.
+- scripts/smoke_live.py
+- scripts/network_smoke.py
+- tests/test_nav_contract.py
+- tests/test_smoke_live.py
+- assets/main.css
+- lib/constants.py
 ```
 
 ## Declared posture

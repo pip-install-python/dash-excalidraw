@@ -87,13 +87,17 @@ SITE_H1 = "# dash-excalidraw — Excalidraw drawing canvas for Dash"
 DEFAULT_BASE_URL = "http://localhost:8050"
 
 # Owner-only surfaces that must 404 their llms.txt to an anonymous reader.
-# This template ships no hidden pages, so the list is a canary rather than a
-# census: `/admin` is what a fork will add first, and `mark_hidden("/admin")`
-# has to keep working. A fork adds its own paths here in the same change that
-# marks them hidden.
+# THIS HOST'S actual hidden pages, not the template's canary. Until 1.6.42
+# this tuple still held the template's `/admin/llms.txt` and
+# `/analytics/llms.txt` — neither of which is a page here — so the battery
+# probed two paths that 404 because nothing serves them (a vacuous pass)
+# while never checking the two admin pages this site really has. Pinned
+# against the registry by
+# tests/test_nav_contract.py::test_battery_hidden_paths_match_the_registry,
+# so a page added, renamed or deleted moves this in the same change.
 HIDDEN_DOC_PATHS = (
-    "/admin/llms.txt",
-    "/analytics/llms.txt",
+    "/admin/control-board/llms.txt",
+    "/admin/traffic/llms.txt",
 )
 
 # The hub one level up the chain. A satellite's llms.txt must name it — that
