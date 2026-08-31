@@ -118,7 +118,11 @@ BROWSER_UA = (
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 "
     f"{_INTERNAL_UA} link-audit"
 )
-_BROWSER_HEADERS = {"User-Agent": BROWSER_UA}
+# Set on the CLIENT OBJECT, not per call (1.6.42, and it is the shape this
+# fork proposed for the fleet pin): a per-call `headers=` has to be
+# remembered at every new call site, and the one that forgets is silent —
+# it just quietly reads the crawler document. environ_base cannot be
+# forgotten.
 
 
 def check_external(url: str, cache: Dict[str, int], _retrying: bool = False) -> int:
@@ -163,6 +167,7 @@ def main() -> int:
 
     module = boot()
     client = module.app.server.test_client()
+    client.environ_base["HTTP_USER_AGENT"] = BROWSER_UA
 
     import dash
 
@@ -192,7 +197,7 @@ def main() -> int:
     total = 0
 
     for page, doc_url in docs:
-        response = client.get(doc_url, headers=_BROWSER_HEADERS)
+        response = client.get(doc_url)
         if response.status_code != 200:
             findings["internal"].append((doc_url, doc_url, f"document itself {response.status_code}"))
             continue
@@ -220,14 +225,14 @@ def main() -> int:
                 if not path.startswith("/"):
                     findings["internal"].append((page, target, "relative path, ambiguous in llms.txt"))
                     continue
-                probe = client.get(path, headers=_BROWSER_HEADERS)
+                probe = client.get(path)
                 if probe.status_code != 200:
                     findings["internal"].append((page, target, f"HTTP {probe.status_code}"))
                 continue
 
             host = parsed.netloc
             if host == base_host:
-                probe = client.get(parsed.path or "/", headers=_BROWSER_HEADERS)
+                probe = client.get(parsed.path or "/")
                 status = "resolves once deployed" if probe.status_code == 200 else f"HTTP {probe.status_code} even locally"
                 findings["self-host"].append((page, target, status))
             elif host in network_hosts:
