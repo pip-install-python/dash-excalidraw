@@ -39,8 +39,12 @@ as the drop ordered: its consequence was accruing.
   and `python` but not the package every floor in this fleet is about, and
   item 1's acceptance asks each host to compare `EVENT_FIELDS` across its
   CI-vs-production pair — a comparison this host could not make from
-  outside. Additive, omitted on failure, recorded as divergence 16 and filed
-  upward.
+  outside. Additive and omitted on failure. Adopted by the fleet the same
+  day under this name: it ships as 1.6.44 item 1's eighth `/healthz` key,
+  so this is early adoption rather than a divergence (DIVERGENCES 16). The
+  name was settled before either side shipped, because the template drop
+  was carrying the field as `dimll` and a fleet key with two names is the
+  failure `/healthz`'s shape contract exists to prevent.
 - Three kit traps in `.claude/CLAUDE.md`, all earned in the item-18 round:
   which branch Render builds can be measured on a green push by timing (as
   evidence, not proof); verify the artifact the claim is about and say which

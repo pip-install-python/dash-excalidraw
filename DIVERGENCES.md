@@ -340,9 +340,20 @@ the registry by `test_battery_hidden_paths_match_the_registry`, which is what
 stops it drifting again. This converges with template 4ac02e0, which set the
 same two values.
 
-### 16. `/healthz` reports `llms_version`
+### 16. `/healthz` reports `llms_version` — EARLY ADOPTION, not a difference
 
-The template's payload names `dash_version` and `python` but not
+**This is a recorded convention, not a divergence.** The key ships in the
+template as 1.6.44 item 1's additive eighth `/healthz` key, under this exact
+name; this host simply had it a day early. The ops seat settled the naming
+on 2026-09-01 before either side shipped, because three forks asked for the
+field the same day and the 1.6.44 drop was carrying it under the seat's
+shorthand `dimll` — **a fleet key with two names is item 10's failure**, and
+catching it while both were still unpushed is the whole point of naming a
+key before it reaches a wire. `llms_version` won because it parallels
+`dash_version` and says what it holds. This entry retires into the 1.6.44
+convention subsection when that lands.
+
+The template's payload named `dash_version` and `python` but not
 `dash-improve-my-llms` — the package every floor in this fleet is about.
 
 **Why it was added (1.6.43 item 1):** that item's acceptance asks each host
@@ -371,9 +382,10 @@ gets `None` at 2.8.0, so the v4 rollup's `class` column comes alive on the
 bump without any code change here.
 
 **Additive and omitted-on-failure**, so the fleet's probe contract is
-unchanged; `flexlayout`'s `version` field is the precedent for a fork adding
-one. Filed upward as a template-class proposal — every host in the fleet has
-this blind spot, and every future floor round will ask the same question.
+unchanged; `flexlayout`'s `version` field was the precedent for a fork
+adding one, and this key is no longer a fork's addition at all — it is the
+fleet's, adopted here first. Every host had this blind spot and every future
+floor round asks the same question.
 
 ## Retired
 
