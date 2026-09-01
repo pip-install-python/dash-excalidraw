@@ -47,6 +47,17 @@ def _ledger_visits():
         return []
 
 
+def _ledger_reads():
+    """Every read row on disk, flushing the write buffer first. A ledger
+    written before the 2.8.0 round has no `reads` key — absence is empty."""
+    tracker.flush()
+    try:
+        with open(analytics_path()) as f:
+            return json.load(f).get("reads") or []
+    except FileNotFoundError:
+        return []
+
+
 def _rollup():
     """Today's rollup as the hub would receive it, or an all-zero stand-in."""
     from lib.traffic_rollup import daily_rollup
@@ -107,6 +118,107 @@ def test_a_crawler_shaped_probe_carrying_the_token_stays_internal(client):
     before = len(_ledger_visits())
     client.get(PAGE, user_agent=f"{CRAWLER_UA} {INTERNAL_UA}")
     assert len(_ledger_visits()) == before
+
+
+def test_the_read_table_drops_internal_traffic_too(client, capsys):
+    """1.6.43 item 1 (note 83a, found by pipdocs): "counted nowhere" includes
+    the READ TABLE.
+
+    `track_visit` has honoured the token since the contract existed;
+    `record_read` — the on_document_read hook the 2.8.0 floor added — did
+    not. So the hub's health sweep, this site's own link audit and every
+    post-deploy battery were landing in `reads` and became the busiest
+    "vendor" on the board.
+
+    BOTH DIRECTIONS IN ONE TEST, deliberately: a drop-everything bug
+    produces the same zero as a correct drop, so the negative is only
+    trustworthy beside a positive. Counts are printed, per the item — a
+    bare "no rows" is the negative this round learned not to trust.
+    """
+    from dash_improve_my_llms import __version__ as pkg_version
+
+    # NEGATIVE: a crawler-shaped probe carrying the token. Same shape the
+    # network's own machinery sends, and the shape a bare-vendor probe
+    # would wrongly record as a real vendor read.
+    before = len(_ledger_reads())
+    client.get("/llms.txt", user_agent=f"{CRAWLER_UA} {INTERNAL_UA}")
+    internal_rows = len(_ledger_reads()) - before
+
+    # POSITIVE: the same document, same lane, WITHOUT the token.
+    mid = len(_ledger_reads())
+    client.get("/llms.txt", user_agent=CRAWLER_UA)
+    vendor_rows = len(_ledger_reads()) - mid
+
+    print(f"\n[item 1] dash-improve-my-llms {pkg_version} · "
+          f"internal-token probe -> {internal_rows} reads rows · "
+          f"real crawler probe -> {vendor_rows} reads rows")
+
+    assert internal_rows == 0, (
+        f"{internal_rows} read row(s) written for a request carrying "
+        f"{INTERNAL_UA_TOKEN!r} — the read table does not hold the contract"
+    )
+    assert vendor_rows == 1, (
+        f"{vendor_rows} read row(s) for a real crawler — the pin would pass "
+        "by dropping everything, which is this fix's own failure mode"
+    )
+
+
+def test_the_read_drop_keys_on_the_field_the_package_actually_sends():
+    """The item's named failure mode: `EVENT_FIELDS` has `ua`, not
+    `user_agent`, so a drop keyed on the wrong name is silently a no-op —
+    green here and useless in production. Pin the field name against the
+    RESOLVED package rather than against the spec text."""
+    from dash_improve_my_llms import __version__ as pkg_version
+    from dash_improve_my_llms._ledger import EVENT_FIELDS
+
+    assert "ua" in EVENT_FIELDS, (
+        f"dash-improve-my-llms {pkg_version} does not send `ua` — "
+        f"record_read's drop is a no-op at this version: {EVENT_FIELDS}"
+    )
+    assert "user_agent" not in EVENT_FIELDS, (
+        "the package now sends `user_agent` too; record_read keys on `ua` "
+        "and must be re-read against this version"
+    )
+    # Read the CODE, not the file. Both names appear in record_read's
+    # docstring before they appear in its body, so a naive `.index()` on the
+    # whole function compares prose to prose and passes on a broken
+    # implementation — the same "grep saw the comment, not the call" class
+    # this round has now hit four times (item 15's detect, item 17's
+    # og:image detect, the fleet's .test_client() pin, and this pin on its
+    # first run). Parse it instead.
+    import ast
+    import pathlib
+
+    path = pathlib.Path(__file__).resolve().parent.parent / "lib" / "analytics_tracker.py"
+    tree = ast.parse(path.read_text())
+    fn = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "record_read"
+    )
+    stmts = fn.body[1:] if isinstance(fn.body[0], ast.Expr) else fn.body  # drop docstring
+    names_per_stmt = [
+        {d.id for d in ast.walk(s) if isinstance(d, ast.Name)}
+        | {d.attr for d in ast.walk(s) if isinstance(d, ast.Attribute)}
+        | {a.name for s2 in [s] for d in ast.walk(s2)
+           if isinstance(d, ast.ImportFrom) for a in d.names}
+        for s in stmts
+    ]
+    tok = next((i for i, n in enumerate(names_per_stmt) if "INTERNAL_UA_TOKEN" in n), None)
+    ev = next((i for i, n in enumerate(names_per_stmt) if "EVENT_FIELDS" in n), None)
+    assert tok is not None, "record_read never mentions INTERNAL_UA_TOKEN in its body"
+    assert ev is not None, "record_read never builds a row from EVENT_FIELDS"
+    assert tok < ev, (
+        f"the token check (stmt {tok}) must precede the row build (stmt {ev}), "
+        "as it does in track_visit"
+    )
+    ua_reads = [
+        s for s in stmts
+        for c in ast.walk(s)
+        if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+        and c.func.attr == "get" and c.args
+        and isinstance(c.args[0], ast.Constant) and c.args[0].value == "ua"
+    ]
+    assert ua_reads, "record_read does not read event['ua'] — keyed on the wrong field"
 
 
 def test_the_token_is_matched_case_insensitively(client):

@@ -6,6 +6,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Site — internal traffic is dropped from the read table too (2026-09-01)
+
+Consumes `sync/SYNC-1.6.43.md` items 1–3 at template 2b1edd5. Item 1 first,
+as the drop ordered: its consequence was accruing.
+
+#### Fixed
+
+- **`record_read` drops internal traffic before it reads any field.**
+  `track_visit` has honoured the network's internal-traffic contract since
+  it existed; the `on_document_read` hook added at the 2.8.0 floor did not.
+  So the hub's health sweep, this site's own link audit and every
+  post-deploy battery were landing in the `reads` table and had become the
+  busiest "vendor" on the board. "Counted nowhere" includes the read table
+  — a host that drops the token from one table and not the other holds half
+  its own contract. Keyed on `ua`, which is what `EVENT_FIELDS` calls it;
+  keyed on `user_agent` it would have been a silent no-op, so the field name
+  is pinned against the resolved package, not against the spec text.
+  Measured both directions: internal-token probe → 0 read rows, real crawler
+  probe → exactly 1, counts printed beside the result.
+- **The test-client UA pin reads the CODE, not the file.** Its file-scoped
+  form flagged `tests/test_internal_traffic.py`, which drives no client at
+  all — it mentions `.test_client()` in a comment about greps matching
+  comments. Now AST-based, with a non-vacuity guard: the sweep must match at
+  least three files, because a sweep that found nothing and a sweep that
+  swept nothing produce the same green. It sweeps 6 and goes red under
+  mutation.
+
+#### Added
+
+- **`/healthz` reports `llms_version`.** The payload named `dash_version`
+  and `python` but not the package every floor in this fleet is about, and
+  item 1's acceptance asks each host to compare `EVENT_FIELDS` across its
+  CI-vs-production pair — a comparison this host could not make from
+  outside. Additive, omitted on failure, recorded as divergence 16 and filed
+  upward.
+- Three kit traps in `.claude/CLAUDE.md`, all earned in the item-18 round:
+  which branch Render builds can be measured on a green push by timing (as
+  evidence, not proof); verify the artifact the claim is about and say which
+  one; and assert the corpus is non-empty before trusting any negative.
+
+Tests 468 → 470.
+
 ### Site — the 1.6.41 remainder, and the caller for the cargo (2026-08-31)
 
 Consumes `sync/SYNC-1.6.22-1.6.42.md` item 18 at template 4ac02e0, with the

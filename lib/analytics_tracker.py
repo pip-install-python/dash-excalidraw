@@ -396,9 +396,32 @@ class AnalyticsTracker:
         it appends; the flush does the disk work.
 
         ``client_ip`` is dropped unless ``ANALYTICS_KEEP_CLIENT_IP=1``.
+
+        INTERNAL TRAFFIC IS DROPPED HERE TOO (1.6.43, note 83a; found by
+        pipdocs). ``track_visit`` has honoured the network's
+        internal-traffic contract since it existed, and this hook did not —
+        so the hub's health sweep, this site's own link audit and every
+        post-deploy battery were landing in ``reads`` and became the
+        busiest "vendor" on the board. "Counted nowhere" includes the READ
+        TABLE; a host that drops the token from one table and not the other
+        holds half its own contract.
+
+        Keyed on ``ua``. ``EVENT_FIELDS`` names it ``ua``, NOT
+        ``user_agent`` — a drop keyed on the wrong name is silently a
+        no-op, which is this fix's own failure mode, so
+        tests/test_internal_traffic.py pins the field name as well as the
+        behaviour.
         """
         if not isinstance(event, dict):
             return
+
+        # BEFORE any field is read into a row — same position, and the same
+        # reasoning, as the check at the top of track_visit.
+        from lib.constants import INTERNAL_UA_TOKEN
+
+        if INTERNAL_UA_TOKEN in (event.get("ua") or "").lower():
+            return
+
         row = {k: event.get(k) for k in EVENT_FIELDS}
         if not KEEP_CLIENT_IP:
             row.pop("client_ip", None)

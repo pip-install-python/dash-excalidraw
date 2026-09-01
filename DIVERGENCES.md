@@ -340,6 +340,41 @@ the registry by `test_battery_hidden_paths_match_the_registry`, which is what
 stops it drifting again. This converges with template 4ac02e0, which set the
 same two values.
 
+### 16. `/healthz` reports `llms_version`
+
+The template's payload names `dash_version` and `python` but not
+`dash-improve-my-llms` — the package every floor in this fleet is about.
+
+**Why it was added (1.6.43 item 1):** that item's acceptance asks each host
+to compare `EVENT_FIELDS` across its own CI-vs-production pair, because the
+fix keys on `ua` and a field renamed between versions would make it a silent
+no-op in production while passing in CI. This host could not answer it. The
+suite's version is readable; production's is not — `/healthz` did not carry
+it, the crawler document names the project without a version, and the one
+page that prints it (`/admin/traffic`'s footnote) is admin-gated and must
+stay that way. The repo cannot answer it either: the floor is `>=2.8.0` and
+the Docker pip layer is cached on that requirements line, so the resolved
+version is whatever was newest when the line last changed, which is not
+derivable from the tree.
+
+Measured while reporting that round, from the wheels rather than inferred:
+
+| version | `ua` | `user_agent` | fields |
+|---|---|---|---|
+| 2.8.0 (this suite) | yes | no | 15 |
+| 2.9.4 (a fresh `>=2.8.0` resolve) | yes | no | 16 — gains `vendor_class` |
+
+`ua` is present at both, so the drop is correct at either — which is the
+check that mattered, and it could only be made by installing both wheels.
+Note `vendor_class`: `lib/traffic_rollup.vendor_rows()` already reads it and
+gets `None` at 2.8.0, so the v4 rollup's `class` column comes alive on the
+bump without any code change here.
+
+**Additive and omitted-on-failure**, so the fleet's probe contract is
+unchanged; `flexlayout`'s `version` field is the precedent for a fork adding
+one. Filed upward as a template-class proposal — every host in the fleet has
+this blind spot, and every future floor round will ask the same question.
+
 ## Retired
 
 Retirements are marked here, not deleted, so that older reports describing

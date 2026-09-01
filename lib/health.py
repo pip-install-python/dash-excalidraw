@@ -68,6 +68,27 @@ def health_payload(backend: str, headers=None) -> dict:
         # declaration can no longer part ways silently.
         "python": platform.python_version(),
     }
+    # WHICH dash-improve-my-llms is actually serving (1.6.43, this fork).
+    # Same argument as `python` three lines up, and the round that forced
+    # it: item 1's acceptance asks every host to compare `EVENT_FIELDS`
+    # across its CI-vs-production pair, because a field renamed between
+    # versions makes that item's fix a silent no-op in production while
+    # passing in CI. This host could not answer it — `dash_version` is on
+    # the wire and the package every floor in this fleet is ABOUT was not,
+    # and the crawler document names the project without its version. The
+    # Docker pip layer is cached on the requirements line, so a `>=` floor
+    # means production's resolved version is not derivable from the repo
+    # either; nothing outside the container could name it.
+    #
+    # ADDITIVE, and a recorded divergence (flexlayout's `version` field is
+    # the precedent). Omitted rather than error-flagged if the import
+    # fails, so the fleet's probe contract is unchanged.
+    try:
+        from dash_improve_my_llms import __version__ as _llms_version
+
+        payload["llms_version"] = _llms_version
+    except Exception:  # pragma: no cover — never let a diagnostic break /healthz
+        pass
     # Which commit the RUNNING instance was built from. This is what lets CD
     # verify the artifact it shipped rather than whichever build happens to
     # be serving: a Render service with a disk restarts with a blip instead

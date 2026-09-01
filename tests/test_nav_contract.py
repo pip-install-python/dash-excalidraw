@@ -603,14 +603,48 @@ def test_every_test_client_user_names_headers():
     """Notes 70/74: a bare test client sends `Werkzeug/x.y` — crawler lane
     at dimll ≥ 2.8 — so a mark_hidden page 404s and an every-page-200 loop
     goes red at the floor bump. Any file that drives `.test_client()` must
-    pass headers (a named UA)."""
-    offenders = []
+    pass headers (a named UA).
+
+    READS THE CODE, NOT THE FILE (1.6.43 item 2, and this tree proved why
+    on 2026-09-01): the file-scoped form flagged
+    tests/test_internal_traffic.py, which drives no test client at all —
+    it MENTIONS `.test_client()` in a comment about greps matching
+    comments. Comments and docstrings are stripped before the match, and
+    `headers=`/`environ_base` are looked for the same way, so a mention in
+    prose neither raises a file nor clears one. The stripping is
+    muicharts' ask; the upstream per-call-site pin (item 2 cargo) also
+    resolves the call site itself and will supersede this."""
+    import ast
+
+    def drives_client_and_names_ua(tree: ast.AST) -> tuple[bool, bool]:
+        drives = any(
+            isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "test_client"
+            for n in ast.walk(tree)
+        )
+        names = any(
+            (isinstance(n, ast.keyword) and n.arg in ("headers", "environ_base"))
+            or (isinstance(n, ast.Attribute) and n.attr == "environ_base")
+            or (isinstance(n, ast.Constant) and n.value == "HTTP_USER_AGENT")
+            for n in ast.walk(tree)
+        )
+        return drives, names
+
+    offenders, swept = [], []
     for folder in ("tests", "scripts"):
         for path in sorted((REPO / folder).glob("*.py")):
-            src = path.read_text()
-            names_ua = "headers=" in src or "HTTP_USER_AGENT" in src
-            if ".test_client()" in src and not names_ua:
+            tree = ast.parse(path.read_text())
+            drives, names = drives_client_and_names_ua(tree)
+            if not drives:
+                continue
+            swept.append(f"{folder}/{path.name}")
+            if not names:
                 offenders.append(f"{folder}/{path.name}")
+
+    # NON-VACUITY, per the trap this pin's own first draft walked into: a
+    # sweep that found nothing and a sweep that swept nothing are the same
+    # green. conftest.py drives a client, so `swept` can never be empty.
+    assert len(swept) >= 3, f"the sweep matched almost nothing — vacuous: {swept}"
     assert offenders == [], offenders
 
 

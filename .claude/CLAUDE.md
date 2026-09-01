@@ -258,3 +258,42 @@ they win.
   at 14:13Z, served for ~6 minutes. A host whose DIVERGENCES.md posture
   fence has no `deploy:` key still watches main — there the trap is the
   old one.
+- WHICH BRANCH RENDER BUILDS can be measured on a GREEN push, by
+  timing — but only as strong evidence, never proof. `main == release
+  == wire` at every step of a promote tells you nothing. Sample
+  `/healthz` every ~45s from the push and time the swap against the
+  **promote**, not the push: leaflet measured build+swap at 2m03s from
+  its promote, where a push-triggered build would have gone live
+  ~1m52s earlier. This host's own before/after is on record — pushes 1
+  and 2 (2026-08-30) had the platform ahead of CI, pushes 3 and 4
+  behind it, and the Branch click landed between them. The canonical
+  discriminator is still the first push that goes RED on main with
+  `release` unmoved and the wire unchanged. Declining to call the
+  `deploy:` fence row proven on a green push is the standard, not
+  timidity.
+- VERIFY THE ARTIFACT THE CLAIM IS ABOUT, AND SAY WHICH ONE. It runs
+  both ways. A props table missing from the crawler document is a
+  defect of the SITE, not of the harness — pannellum moved that
+  assertion to the lane that passed and the pin held for a fortnight
+  over a corpus serving zero props; when a lane disagrees, THAT is the
+  finding. The inverse is worse because it sends someone hunting a bug
+  that does not exist: on this host `curl https://excalidraw.2plot.dev/
+  | grep -c skip-link` returns **0** while the skip link ships and
+  works, because it is a Dash component in `app.layout` and React
+  renders it. The browser lane is THREE artifacts — the app-shell
+  markup, the dimll prerender block inside the same received HTML, and
+  the JS-rendered DOM. curl reaches the first two. Name which one you
+  measured.
+- ASSERT THE CORPUS IS NON-EMPTY BEFORE TRUSTING ANY NEGATIVE, and
+  print the count beside the result. A sweep that found nothing and a
+  sweep that swept nothing produce the same green. MEASURED HERE
+  2026-09-01: `.flake8` excludes `docs/*/`, so CI's
+  `flake8 … run.py docs` exits 0 having read NONE of the 15 example
+  modules — lifting the exclude surfaces 28 findings, and the CI step's
+  own comment claims docs "is part of the linted tree". Same family:
+  `network_smoke`'s HIDDEN_DOC_PATHS probed two paths no page served
+  (vacuous 404s) until 1.6.42; a `pytest … | tail -2 && git commit`
+  takes `tail`'s exit status and commits a red suite; and a
+  `py_compile` sweep writing every module to one `cfile` reports 15/15
+  broken when nothing is. Count the things you swept, then trust the
+  zero.
