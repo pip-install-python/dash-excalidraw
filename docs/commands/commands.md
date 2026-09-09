@@ -6,7 +6,7 @@ package: dash_excalidraw
 category: Data flow
 order: 3
 icon: mdi:console-line
-lastmod: 2026-09-08
+lastmod: 2026-09-09
 ---
 
 .. llms_copy::Command dispatch
@@ -43,8 +43,22 @@ are not interchangeable. Use `replaceFiles` to swap an existing file's bytes
 skips malformed entries; that is the shape [File uploads](/file-uploads)
 uses to trade base64 for URLs. Use `addFiles` only when you need the raw
 Excalidraw `BinaryFileData` list, including fields `replaceFiles` would
-drop; you must supply `created` yourself, and a malformed entry is a silent
-no-op.
+drop. It is a straight passthrough, so the list you send is the list
+Excalidraw receives: **you supply `created` and `mimeType` yourself**, and an
+entry missing either is not an error — Excalidraw simply ignores it, so a
+malformed `addFiles` payload is a silent no-op rather than a visible failure.
+
+```python
+# replaceFiles — id-keyed map; created/mimeType filled for you
+{"id": cmd_id, "type": "replaceFiles",
+ "payload": {file_id: {"dataURL": "https://cdn.example.com/a.png"}}}
+
+# addFiles — raw BinaryFileData list; every field is yours to supply
+{"id": cmd_id, "type": "addFiles",
+ "payload": [{"id": file_id, "mimeType": "image/png",
+              "dataURL": "data:image/png;base64,…",
+              "created": 1757376000000}]}
+```
 
 ### Scene pushes and undo history
 
