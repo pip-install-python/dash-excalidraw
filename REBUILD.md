@@ -5,7 +5,7 @@
 > boundary, and preserves the current public API wherever the change is gratuitous.
 
 **Authored:** April 2026
-**Target `dash-excalidraw` version on release:** `0.1.0` (breaks with `0.0.x`, by design)
+**Target `dash-excalidraw` version on release:** `1.0.0` (breaks with `0.0.x`, by design)
 **Minimum supported Dash:** `3.0.3`
 **Minimum supported Python:** `3.9`
 **Minimum supported React:** `18.3.1`
@@ -361,7 +361,7 @@ approach is simpler for a Python package — one `.js` file to ship.
 
 Excalidraw 0.18 loads fonts from `esm.run` CDN by default. Two choices:
 
-**Option A (default, recommended for 0.1.0):** Leave the CDN loading on.
+**Option A (default, recommended for 1.0.0):** Leave the CDN loading on.
 Simpler, fonts load lazily, no asset-copy step in the Python packaging.
 Downside: requires internet access at runtime. Documented as a known
 limitation.
@@ -481,7 +481,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dash-excalidraw"
-version = "0.1.0"
+version = "1.0.0"
 description = "Excalidraw drawing component for Dash"
 readme = "README.md"
 license = { text = "MIT" }
@@ -516,13 +516,23 @@ workflow.
 
 ### 7.3 Semver on the Python package
 
-This rebuild warrants a jump to `0.1.0`:
+This rebuild ships as `1.0.0`:
 
-- `0.0.4 → 0.1.0` signals a breaking change to downstream consumers
-- Future bug-fix-only releases go `0.1.1`, `0.1.2`, …
-- Future minor features that don't break the API go `0.2.0`, `0.3.0`, …
-- `1.0.0` is reserved for the first release where we commit to a stable
-  Python API surface
+- `0.0.4 → 1.0.0` says more than "this breaks": it commits to the prop
+  surface as a stable public API. That is the whole point of the major —
+  under semver a `0.x` number promises nothing, and the wrapper has stopped
+  being provisional.
+- What we are committing to is the JSON-safe contract: 38 props, snapshot
+  props for events, one `command` prop for the twelve imperative methods.
+  Nothing in it can change without a `2.0.0`.
+- Future bug-fix-only releases go `1.0.1`, `1.0.2`, …
+- Future additive features that don't break the API go `1.1.0`, `1.2.0`, …
+
+An earlier draft of this document reserved `1.0.0` for "the first release
+where we commit to a stable Python API surface" and targeted `0.1.0`. That
+release is this one — the surface was settled by the rebuild, the migration
+from `0.0.x` is documented, and holding the major back would have understated
+what downstream consumers can now rely on.
 
 ---
 
@@ -632,14 +642,14 @@ Add `examples/`:
 - README rewrite
 - Five examples
 - Migration guide
-- Publish `0.1.0-rc1` to TestPyPI
+- Publish `1.0.0-rc1` to TestPyPI
 - Feedback cycle of ~2 weeks
-- Publish `0.1.0` to PyPI
+- Publish `1.0.0` to PyPI
 
 ### Phase 5 — optional hooks companion (week 6+, can slip)
 
 - `dash-excalidraw-hooks` with autosave, error banner, analytics
-- Publish `0.1.0` to PyPI as a separate package
+- Publish `1.0.0` to PyPI as a separate package
 
 ---
 
@@ -657,7 +667,7 @@ Add `examples/`:
   pinning to a known-good `0.18.0-<sha>` pre-release commit that's fixed.
 - **CDN font loading.** Environments without outbound internet (corporate
   firewalls, air-gapped) will see fallback fonts. Flag as a known
-  limitation for 0.1.0; address in 0.2.0 with self-hosted fonts.
+  limitation for 1.0.0; address in 1.1.0 with self-hosted fonts.
 
 ### Open questions
 

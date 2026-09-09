@@ -1,6 +1,6 @@
 {
   "name": "dash_excalidraw",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Excalidraw drawing component for Dash 3+ / Excalidraw 0.18.x",
   "main": "index.ts",
   "repository": {

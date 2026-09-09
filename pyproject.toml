@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dash-excalidraw"
-version = "0.1.0"
+version = "1.0.0"
 description = "Excalidraw drawing component for Dash"
 readme = "README.md"
 license = { text = "MIT" }

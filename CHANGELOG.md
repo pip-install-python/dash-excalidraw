@@ -770,6 +770,6 @@ matrix marker.
   `.env`. Nothing in the showcase requires a key; every AI provider degrades to
   a disabled state when its key is absent.
 
-## [0.1.0] — unreleased
+## [1.0.0] — unreleased
 
 Ground-up TypeScript rebuild of the component. See `REBUILD.md`.
