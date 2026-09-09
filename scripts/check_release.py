@@ -52,15 +52,41 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         problems.append(f"{label}: {detail}")
 
 
-def _last_commit(path: str) -> int | None:
+def _last_commit(*pathspecs: str) -> int | None:
     try:
         out = subprocess.run(
-            ["git", "log", "-1", "--format=%ct", "--", path],
+            ["git", "log", "-1", "--format=%ct", "--", *pathspecs],
             cwd=ROOT, capture_output=True, text=True, timeout=15,
         )
         return int(out.stdout.strip()) if out.stdout.strip() else None
     except Exception:  # noqa: BLE001 — not a git checkout, or no git
         return None
+
+
+def _tracked(*pathspecs: str) -> list[str]:
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "--", *pathspecs],
+            cwd=ROOT, capture_output=True, text=True, timeout=15,
+        )
+        return [line for line in out.stdout.splitlines() if line.strip()]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+# What actually ends up in the bundle. webpack's entry is src/ts/index.ts, so
+# a file nothing imports is never built — and the jest harness beside the
+# component is exactly that: `build:backends` already skips it via
+# `--ignore \.test\.`, and `npm run build` after it was added left the bundle
+# byte-identical. Comparing commit times against ALL of src/ts therefore reads
+# a test-only commit as "the bundle is stale" and fails a release check that
+# nothing is wrong with. Measured: adding the harness in d9d615a turned this
+# check red in CI while the bundle it was judging had not changed.
+_BUNDLE_SOURCES = (
+    "src/ts",
+    ":(exclude,glob)src/ts/**/*.test.*",
+    ":(exclude)src/ts/__mocks__",
+)
 
 
 def check_bundle_freshness(bundle: Path) -> None:
@@ -70,7 +96,18 @@ def check_bundle_freshness(bundle: Path) -> None:
     timestamps are the healthy case — hence ``>=``, not ``>``.
     """
     bundle_at = _last_commit(str(bundle.relative_to(ROOT)))
-    src_at = _last_commit("src/ts")
+    src_at = _last_commit(*_BUNDLE_SOURCES)
+
+    # A sweep that found nothing and a sweep that swept nothing both give a
+    # green here, because `src_at is None` falls through to the SKIP below.
+    # Count what the pathspec still sees, so an exclusion that grew too broad
+    # is loud instead of silently passing.
+    sources = _tracked(*_BUNDLE_SOURCES)
+    if not sources:
+        check("bundle newer than src/ts", False,
+              "no bundle sources matched — the exclusions in _BUNDLE_SOURCES "
+              "are too broad, so this check was about to pass on nothing")
+        return
 
     if bundle_at is None or src_at is None:
         notes.append(
