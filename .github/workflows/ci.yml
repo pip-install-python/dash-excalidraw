@@ -67,7 +67,9 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15, not 10: this job now also runs `npm ci` for the jest harness, and a
+    # cold npm cache is minutes on its own.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -93,6 +95,25 @@ jobs:
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
           ./actionlint -color
+
+      # The JavaScript harness. It lives INSIDE a gating job on purpose: the
+      # two behaviours it covers — the command dispatcher's readiness/id
+      # handling and the export correlation — are the ones no Python test can
+      # observe, and the browser walk cannot observe them either (every docs
+      # callback that writes `command` carries prevent_initial_call=True, so
+      # nothing dispatches on load). A separate advisory job would leave the
+      # only check for the ae82a0c regression outside the gate.
+      #
+      # Last on purpose too: flake8 and actionlint are seconds, this is an npm
+      # install, so the cheap checks fail first.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install the JS toolchain
+        run: npm ci
+      - name: jest — command dispatcher and export correlation
+        run: npm test
 
   test:
     name: pytest · ${{ matrix.backend }} · py${{ matrix.python }}
