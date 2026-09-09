@@ -387,6 +387,41 @@ adding one, and this key is no longer a fork's addition at all — it is the
 fleet's, adopted here first. Every host had this blind spot and every future
 floor round asks the same question.
 
+### 17. `lib/versions.py` resolves THIS repo's own package from the tree
+
+The template's `{{VERSION:<dist>}}` substituter reads
+`importlib.metadata.version()` and raises `LookupError` at load when the
+distribution is not installed. This fork adds exactly one fallback: for
+`dash-excalidraw` only, when no dist-info exists, it reads
+`dash_excalidraw.__version__` — which comes from `package-info.json`, a
+static string in the tree that `scripts/check_release.py` already pins
+against `pyproject.toml`. Every other name keeps the loud `LookupError`
+unchanged.
+
+**Why:** this satellite documents a package that ships FROM THIS TREE, and
+neither lane that runs the site installs it as a distribution. The Dockerfile
+does `pip install -r requirements.txt`, then `COPY . .` — there is no
+`pip install .` — so production imports `dash_excalidraw` from `/app` with no
+dist-info, and CI's docs-site job builds the same way. A developer venv that
+ran `pip install -e .` resolves the name fine. So a page claiming this
+package's own version is green locally and fails the BOOT in production.
+Measured, not reasoned: `docs/migration/migration.md` did exactly that —
+472 passed here, `LookupError` at collection and an unimportable `run.py` on
+a venv without the distribution.
+
+The template has no counterpart because the template documents no package of
+its own: every version it claims is a third-party dependency, where "not
+installed" genuinely does mean the claim cannot be true. That reasoning does
+not reach a fork's own package, which is present as source rather than as a
+distribution.
+
+**What a sync must not do:** remove the fallback, or widen it. The narrow
+scope IS the divergence — `_OWN_DIST` is one name, and a satellite claiming a
+version for any other distribution must still fail loudly at load rather than
+leak a placeholder into served prose. The ops seat carries this shape upstream
+as a template rider (a satellite naming its own distribution and module); if
+the template adopts it, this entry retires in that sync.
+
 ## Retired
 
 Retirements are marked here, not deleted, so that older reports describing

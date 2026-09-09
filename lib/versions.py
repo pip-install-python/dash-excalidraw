@@ -24,10 +24,42 @@ loud-over-silent choice the identity tests make.
 """
 from __future__ import annotations
 
+import importlib
 import re
 from importlib.metadata import PackageNotFoundError, version
 
 _PLACEHOLDER = re.compile(r"\{\{VERSION:([A-Za-z0-9._-]+)\}\}")
+
+# THE SATELLITE'S OWN PACKAGE IS NOT AN INSTALLED DISTRIBUTION HERE.
+# Neither CI's docs-site job nor the Docker image runs `pip install .`: the
+# image does `pip install -r requirements.txt`, then `COPY . .`, and imports
+# `dash_excalidraw` from the working directory. So there is no dist-info and
+# `importlib.metadata.version("dash-excalidraw")` raises — while a developer
+# venv that ran `pip install -e .` resolves it fine. A page claiming this
+# package's version would therefore pass locally and fail the boot in
+# production, which is exactly what a `{{VERSION:dash-excalidraw}}` on
+# docs/migration did before this fallback existed.
+#
+# The package carries the same number as a static string in the tree:
+# `dash_excalidraw.__version__` is read from package-info.json, the file
+# `npm run build:backends` writes and scripts/check_release.py pins against
+# pyproject. Reading it needs no dist-info and cannot drift from the wheel.
+#
+# Scoped deliberately to this one name. Every other distribution keeps the
+# loud LookupError, because for a third-party package "not installed" really
+# does mean the claim cannot be true.
+_OWN_DIST = "dash-excalidraw"
+_OWN_MODULE = "dash_excalidraw"
+
+
+def _own_version_from_tree() -> str | None:
+    """`dash_excalidraw.__version__` without requiring an installed dist."""
+    try:
+        module = importlib.import_module(_OWN_MODULE)
+    except Exception:
+        return None
+    return getattr(module, "__version__", None) or None
+
 
 # The first placeholder, from before the general form existed (the 2026-08-14
 # truth sweep). Satellites forked in that window may still write it.
@@ -47,6 +79,10 @@ def _substitute_prose(text: str, source: str) -> str:
         try:
             return version(dist)
         except PackageNotFoundError:
+            if dist == _OWN_DIST:
+                own = _own_version_from_tree()
+                if own:
+                    return own
             raise LookupError(
                 f"{source} claims a version for {dist!r}, but that "
                 "distribution is not installed — the claim cannot be true. "
