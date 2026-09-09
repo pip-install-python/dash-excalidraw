@@ -6,7 +6,7 @@ package: dash_excalidraw
 category: Getting started
 order: 1
 icon: mdi:draw
-lastmod: 2026-08-08
+lastmod: 2026-09-08
 ---
 
 .. llms_copy::Basic usage
@@ -76,6 +76,36 @@ def show(elements):
 `elements` updates on every scene change. If you only need to know *that*
 something changed — not what — read `sceneVersion` instead; it is a single
 integer and far cheaper to compare than diffing the element array.
+
+### Four switches you may need in a real app
+
+The defaults suit a canvas that owns its page. An app with other inputs, or a
+canvas embedded in a longer scrolling document, usually wants one or two of
+these changed.
+
+| Prop | Default | Turn it off when |
+|:-----|:--------|:-----------------|
+| `handleKeyboardGlobally` | `True` | Your page has other inputs. Shortcuts otherwise fire while the user types elsewhere. |
+| `autoFocus` | `True` | The canvas is below the fold, or another field should hold focus on load. |
+| `detectScroll` | `True` | The canvas sits inside a scrolling container and swallowing wheel events feels like a trap. |
+| `langCode` | `"en"` | You want another UI language — `"fr-FR"`, `"zh-CN"`, and so on. |
+
+```python
+DashExcalidraw(
+    id="canvas",
+    handleKeyboardGlobally=False,  # a form on the same page owns the keyboard
+    autoFocus=False,
+    detectScroll=False,            # the page scrolls; the canvas should not eat it
+    langCode="fr-FR",
+)
+```
+
+`handleKeyboardGlobally` is the one worth thinking about first. It moves
+Excalidraw's key handling from the canvas to the document, which is what
+makes single-key shortcuts work without clicking the canvas — and also what
+puts it in the same room as every other keyboard consumer on your page. If
+you have your own shortcuts, a modal, or a form that shares the layout, turn
+it off and let the canvas take focus before it takes keys.
 
 ### Where to go next
 
