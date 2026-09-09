@@ -29,6 +29,20 @@ node_modules/
 __pycache__/
 *.py[cod]
 
+# Python packaging artifacts. `*.egg-info/` is the one that bites: a developer
+# who has run `pip install -e .` has a `dash_excalidraw.egg-info/` in the tree
+# recording the version AT INSTALL TIME. `COPY . .` would bake it into the
+# image, where it is a second, stale distribution sitting on sys.path ahead of
+# anything else — and `lib/versions.py` prefers an installed distribution over
+# the tree, so `{{VERSION:dash-excalidraw}}` would publish the stale number.
+# MEASURED in this tree at the 1.0.0 bump: metadata reported 0.1.0 from the
+# egg-info while package-info.json said 1.0.0. Render is safe only because it
+# builds from a clean clone, which never has one — exactly the asymmetry the
+# `.env` case at the top of this file was written about.
+*.egg-info/
+build/
+dist/
+
 # VCS, tooling and caches
 .git/
 .gitignore
