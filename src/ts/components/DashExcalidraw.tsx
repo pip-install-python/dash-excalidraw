@@ -1189,10 +1189,20 @@ const DashExcalidraw = (props: Props) => {
     useEffect(() => {
         if (!command || !command.id) return;
         if (command.id === lastCommandIdRef.current) return;
-        lastCommandIdRef.current = command.id;
 
         const api = apiRef.current;
+        // Claim the id only once the canvas can actually service the command.
+        // Marking it consumed first — as this did — dropped any command
+        // dispatched before Excalidraw's `excalidrawAPI` callback had fired:
+        // the `finally` that clears `command` lives inside `run()`, which this
+        // early return never reaches, so `command` stayed set while its id was
+        // already burned, and the id guard above then rejected every retry.
+        // A callback that dispatches on page load hits exactly that window.
+        // `api` (the state set alongside `apiRef`) is in the dependency list
+        // so this effect re-runs the moment the canvas is ready.
         if (!api) return;
+
+        lastCommandIdRef.current = command.id;
 
         const {id: commandId, type, payload} = command;
 
@@ -1444,7 +1454,13 @@ const DashExcalidraw = (props: Props) => {
         };
 
         void run();
-    }, [command, writeProps]);
+        // `api` is the state written beside `apiRef` in the `excalidrawAPI`
+        // callback. It is here, not read here, on purpose: it turns "the
+        // canvas became ready" into a re-run so a command that arrived early
+        // is dispatched instead of dropped. Inside the body `api` is the ref
+        // read, which is what the async `run()` must use to avoid a stale
+        // closure; the dependency list resolves to the state in the scope above.
+    }, [command, api, writeProps]);
 
     /* --------- render ---------------------------------------------------- */
     if (!isMounted) {
