@@ -94,4 +94,4 @@ integer and far cheaper to compare than diffing the element array.
 
 Every prop on the component, generated from the TypeScript source.
 
-.. kwargs::DashExcalidraw
+.. kwargs::dash_excalidraw.DashExcalidraw
