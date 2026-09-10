@@ -34,6 +34,7 @@ from lib.scene_ai import (
     CLAUDE_MODELS,
     CLAUDE_PRICING,
     EFFORT_CAPABLE,
+    coerce_budget,
     _call_claude,
     _parse_and_normalize,
     _spend_allowed,
@@ -278,12 +279,16 @@ component = dmc.Stack(
 )
 def _estimate_cost(model, axis, efforts, budgets, fixed_budget):
     """Price the matrix BEFORE it runs. See the module docstring."""
+    # coerce_budget, not int(): `bm-fixed-budget` is a NumberInput and hands
+    # over whatever is in the box mid-edit, and "64.000" is not an int.
     if axis == "effort":
         n = len(efforts or [])
-        budget = int(fixed_budget or 24000)
+        budget = coerce_budget(fixed_budget, 24000)
     else:
         n = len(budgets or [])
-        budget = max((int(b) for b in budgets or ["24000"]), default=24000)
+        budget = max(
+            (coerce_budget(b, 24000) for b in budgets or ["24000"]), default=24000
+        )
 
     n = min(n, MAX_VARIANTS)
     if not n:

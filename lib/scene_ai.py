@@ -325,6 +325,54 @@ def _spend_allowed() -> bool:
     return not in_production
 
 
+# The token-budget control's range. Defined here rather than inline in each
+# NumberInput so the clamp below and the widgets cannot drift apart.
+BUDGET_MIN = 1000
+BUDGET_MAX = 128000
+
+# A number typed into a dmc.NumberInput does not arrive as an int. Mid-edit it
+# arrives as whatever is in the box — "64.000" was the value that crashed both
+# pages, and `int("64.000")` raises rather than returning anything.
+#
+# `64.000` also shows why "just call float()" is the wrong reflex: read as a
+# decimal it is 64 tokens, read as grouped digits it is 64,000 — a
+# thousand-fold difference in what the user is quoted and then billed. The
+# grouping reading is the right one here (the control's own range starts at
+# 1,000 and steps in 4,000s, so 64 was never on offer), but only when the
+# separator is followed by exactly three digits. Anything else falls through
+# to a plain float parse.
+_GROUPED = re.compile(r"^\d{1,3}(?:[.,]\d{3})+$")
+
+
+def coerce_budget(value, default: int | None = None) -> int | None:
+    """A token budget from the UI, or `default` when it cannot be read.
+
+    Never raises. This sits in front of BOTH the cost estimate and the paid
+    call, because a value that cannot be parsed is a 500 on whichever it
+    reaches first — and the one it reaches first is usually the estimate,
+    which is the harmless one.
+    """
+    if value is None or isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        number = float(value)
+    else:
+        text = str(value).strip().replace(" ", "")
+        if not text:
+            return default
+        if _GROUPED.match(text):
+            text = text.replace(".", "").replace(",", "")
+        else:
+            text = text.replace(",", "")
+        try:
+            number = float(text)
+        except ValueError:
+            return default
+    if number != number or number in (float("inf"), float("-inf")):  # NaN / inf
+        return default
+    return max(BUDGET_MIN, min(BUDGET_MAX, int(number)))
+
+
 def _call_claude(
     model: str,
     user_prompt: str,
@@ -346,7 +394,10 @@ def _call_claude(
     import anthropic
 
     client = anthropic.Anthropic()
-    max_tokens = int(max_tokens or CLAUDE_MAX_TOKENS.get(model, 32000))
+    # Falls back to the model's own default rather than raising. This is the
+    # PAID path: an unreadable box should send a known-safe budget, not an
+    # error after the user has already committed to spending.
+    max_tokens = coerce_budget(max_tokens, CLAUDE_MAX_TOKENS.get(model, 32000))
 
     # Resolve effort: the caller's choice, falling back to the per-model
     # default. "none" is a real choice, not a missing value — it means send
