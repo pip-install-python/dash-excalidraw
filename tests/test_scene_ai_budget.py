@@ -93,3 +93,62 @@ class TestOrdinaryValues:
     )
     def test_pass_through_unchanged(self, value, expected):
         assert coerce_budget(value) == expected
+
+
+class TestTheCrossProviderRegistry:
+    """/benchmark can put a Claude cell and a ChatGPT cell in one sweep.
+
+    That only works if everything a run needs is reachable by MODEL ID —
+    price, budget, effort default, and which client to call. A model added to
+    one table and forgotten in another would not raise; it would render a
+    panel with a wrong or zero cost, which is the failure mode this pins.
+    """
+
+    def test_every_comparable_model_has_a_complete_row(self):
+        from lib.scene_ai import (
+            COMPARABLE_MODELS,
+            MODEL_EFFORT,
+            MODEL_LABEL,
+            MODEL_MAX_TOKENS,
+            MODEL_PRICING,
+            PROVIDER_OF,
+        )
+
+        assert COMPARABLE_MODELS, "corpus empty — the assertions below would be vacuous"
+        for entry in COMPARABLE_MODELS:
+            model = entry["value"]
+            assert model in MODEL_PRICING, f"{model} has no price"
+            assert model in MODEL_MAX_TOKENS, f"{model} has no default budget"
+            assert model in MODEL_EFFORT, f"{model} has no effort default"
+            assert model in MODEL_LABEL, f"{model} has no display label"
+            assert PROVIDER_OF.get(model) in {"claude", "chatgpt"}
+
+    def test_every_comparable_model_is_actually_priced(self):
+        from lib.scene_ai import COMPARABLE_MODELS, MODEL_MAX_TOKENS, estimate_cost
+
+        for entry in COMPARABLE_MODELS:
+            model = entry["value"]
+            est = estimate_cost(model, "low", MODEL_MAX_TOKENS[model])
+            assert est["priced"] is True, f"{model} did not price"
+            assert est["typical"] > 0, f"{model} priced at zero — reads as free"
+
+    def test_gemini_is_excluded_rather_than_priced_at_zero(self):
+        from lib.scene_ai import COMPARABLE_MODELS, GEMINI_MODELS, call_model
+
+        comparable = {m["value"] for m in COMPARABLE_MODELS}
+        for entry in GEMINI_MODELS:
+            assert entry["value"] not in comparable
+        with pytest.raises(ValueError):
+            call_model(GEMINI_MODELS[0]["value"], "prompt")
+
+    def test_openai_models_take_an_effort(self):
+        # The whole point of pairing them with Claude in one sweep is matched
+        # settings; a model that silently ignored effort would not be matched.
+        from lib.scene_ai import EFFORT_CAPABLE, OPENAI_MODELS, resolve_effort
+
+        for entry in OPENAI_MODELS:
+            assert entry["value"] in EFFORT_CAPABLE
+            assert resolve_effort(entry["value"], "xhigh") == "xhigh"
+            # "none" means send no reasoning parameter at all, which is what
+            # keeps astra (whose docs omit `none`) off a value it may reject.
+            assert resolve_effort(entry["value"], "none") is None

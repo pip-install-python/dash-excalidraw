@@ -1,13 +1,13 @@
 ---
 name: Benchmark
-description: "Run one prompt across several efforts or token budgets at once and compare the drawings side by side."
+description: "Run one prompt across several efforts, token budgets or models — Claude against ChatGPT — and compare the drawings side by side."
 endpoint: /benchmark
 package: dash_excalidraw
 category: Advanced
 order: 5
 icon: mdi:chart-box-outline
 tier: auth
-lastmod: 2026-08-09
+lastmod: 2026-09-10
 ---
 
 .. llms_copy::Benchmark
@@ -25,7 +25,7 @@ you whether the extra tokens actually bought anything — which is not the same
 question, and is the reason every cell renders a real canvas rather than a row
 in a table.
 
-### What the two axes mean
+### What the three axes mean
 
 **Effort** is thinking depth. On Claude Opus 5 it is largely a cost-and-latency
 control for this task: in a measured sweep, `high` cost 2.3× `low` and took 44%
@@ -36,8 +36,21 @@ longer to produce one extra element, and `medium` produced *fewer* elements than
 **and** response text together, so it is not a safety net but the main quality
 dial: tripling it took the same prompt from 24 elements to 31.
 
-Only one axis varies per run. Two moving variables make a comparison
-unreadable, and a full grid is a combinatorial bill.
+**Model** is the third axis, and the only one that crosses providers: it puts
+a Claude cell and a ChatGPT cell in the same sweep, on the same prompt, at the
+same budget and the same effort. That last part is what makes it a comparison
+rather than two runs — matched settings, and a real price on each, where the
+published rates differ by up to 40× between the models offered here.
+
+Gemini is deliberately absent from this axis. It is called through a different
+signature with neither control and has no published price in this app, so a
+Gemini cell could show a drawing but never an honest cost or a matched setting.
+It remains available on [AI agent](/ai-agent).
+
+Only one axis varies per run, and the page shows only the controls that axis
+reads — the others are hidden rather than left on screen looking live. Two
+moving variables make a comparison unreadable, and a full grid is a
+combinatorial bill.
 
 ### Live demo
 

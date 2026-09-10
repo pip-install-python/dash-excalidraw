@@ -303,3 +303,32 @@ gunicorn>=23.0.0
 # declaration to `<8`.
 clerk-backend-api>=7.0.0,<8
 cryptography>=50.0.0
+
+# ---------------------------------------------------------------------------
+#  AI provider SDKs — the lane these pins make live
+# ---------------------------------------------------------------------------
+#
+# These three lines are the first time /ai-agent and /benchmark can call
+# anything on a deployed commit. Until now the SDKs were an OPTIONAL extra
+# (pyproject's `ai`), which the Dockerfile never installs — so the pages
+# rendered, the buttons existed, and every click died on an ImportError that
+# the fail-soft path turned into "unknown". Adding them here is a behaviour
+# change to the deployed site, not a dependency bump.
+#
+# `==` and not `>=`, deliberately. These are the versions every successful
+# call this app has made went through; a floor would let a deploy pick up a
+# major version nobody here has run. anthropic 1.4.0 and google-genai 2.22.0
+# both exist and are each a MAJOR version ahead of the pins below — 1.4.0 was
+# read from the wheel and does keep `messages.stream`, `output_config` and
+# `models.list`, but "the surface still exists" is not "this app still works",
+# and the commit that first makes the lane live is the wrong place to find
+# out. Bumping either is its own change with its own verification.
+#
+# Keys are read at CALL time, never at import: no key means the page says so
+# and the rest of the site is unaffected.
+#   ANTHROPIC_API_KEY              -> Claude models
+#   CHATGPT_API_KEY / OPENAI_API_KEY -> ChatGPT models (first name wins)
+#   GEMINI_API_KEY / GOOGLE_API_KEY  -> Gemini models
+anthropic==0.96.0
+openai==3.11.0
+google-genai==1.73.1

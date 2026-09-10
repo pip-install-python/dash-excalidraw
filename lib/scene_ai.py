@@ -286,12 +286,90 @@ CLAUDE_EFFORT = {
     "claude-haiku-4-5": None,
 }
 
+OPENAI_MODELS = [
+    {"value": "gpt-6-astra", "label": "GPT-6 Astra"},
+    {"value": "gpt-5.6-sol", "label": "GPT-5.6 Sol"},
+    {"value": "gpt-5.6-terra", "label": "GPT-5.6 Terra"},
+    {"value": "gpt-5.6-luna", "label": "GPT-5.6 Luna"},
+]
+
+# USD per 1M tokens (input, output). Cached input is cheaper still (a tenth on
+# all four) and >272K-token prompts carry a 2x input / 1.5x output multiplier
+# on terra and luna — neither applies at the prompt sizes this page sends, so
+# neither is modelled here.
+OPENAI_PRICING = {
+    "gpt-6-astra": (10.0, 50.0),
+    "gpt-5.6-sol": (4.0, 20.0),
+    "gpt-5.6-terra": (2.0, 12.0),
+    "gpt-5.6-luna": (0.2, 1.2),
+}
+
+# All four cap at 128K output. The ladder below is deliberately inverse to
+# price, so a default run lands in the same rough band whichever you pick:
+#   astra  24K x $50  = $1.20      terra  32K x $12  = $0.38
+#   sol    24K x $20  = $0.48      luna   64K x $1.2 = $0.08
+# Same reasoning as the Claude table: these are reasoning models, the budget
+# covers reasoning AND output, and the number is a latency-and-bill ceiling
+# rather than a target.
+OPENAI_MAX_TOKENS = {
+    "gpt-6-astra": 24000,
+    "gpt-5.6-sol": 24000,
+    "gpt-5.6-terra": 32000,
+    "gpt-5.6-luna": 64000,
+}
+
+# `low` for the same reason as Claude: a scene is structured output, not deep
+# reasoning. OpenAI's own default is `medium`.
+OPENAI_EFFORT = {
+    "gpt-6-astra": "low",
+    "gpt-5.6-sol": "low",
+    "gpt-5.6-terra": "low",
+    "gpt-5.6-luna": "low",
+}
+
+# The API's `ReasoningEffort` literal accepts none/minimal/low/medium/high/
+# xhigh/max, so every level this UI offers is valid — except that astra's model
+# page does not list `none`. The app sends NO reasoning parameter for "none"
+# anyway (the same meaning it has for Claude), so that difference never
+# reaches the wire.
+EFFORT_CAPABLE = EFFORT_CAPABLE | {m["value"] for m in OPENAI_MODELS}
+
 GEMINI_MODELS = [
     {"value": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"},
     {"value": "gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
 ]
 
 GEMINI_MAX_TOKENS = 64000
+
+
+# ---------------------------------------------------------------------------
+#  One registry across providers
+# ---------------------------------------------------------------------------
+#
+# /benchmark can put a Claude model and a ChatGPT model side by side on the
+# same prompt, which only works if pricing, budgets, defaults and dispatch are
+# reachable by MODEL ID alone — the provider is then a property of the model
+# rather than a separate control the two lists have to be kept in step with.
+PROVIDER_OF = {
+    **{m["value"]: "claude" for m in CLAUDE_MODELS},
+    **{m["value"]: "chatgpt" for m in OPENAI_MODELS},
+    **{m["value"]: "gemini" for m in GEMINI_MODELS},
+}
+MODEL_LABEL = {
+    m["value"]: m["label"] for m in CLAUDE_MODELS + OPENAI_MODELS + GEMINI_MODELS
+}
+MODEL_PRICING = {**CLAUDE_PRICING, **OPENAI_PRICING}
+MODEL_MAX_TOKENS = {**CLAUDE_MAX_TOKENS, **OPENAI_MAX_TOKENS}
+MODEL_EFFORT = {**CLAUDE_EFFORT, **OPENAI_EFFORT}
+
+# Models that can take part in a cross-provider comparison: they accept a
+# budget and an effort, and they have a published price. Gemini is out — it is
+# called through a different signature with neither control and no entry in
+# MODEL_PRICING, so a "compare" cell for it could show a drawing but never an
+# honest cost or a matched setting.
+COMPARABLE_MODELS = [
+    {"value": m["value"], "label": m["label"]} for m in CLAUDE_MODELS + OPENAI_MODELS
+]
 
 
 def _extract_json_block(text: str) -> str:
@@ -506,10 +584,10 @@ def estimate_cost(
     """Typical and worst-case dollars for one call.
 
     Returns ``{typical, ceiling, fraction, effort, priced}``. ``priced`` is
-    False for a model with no entry in CLAUDE_PRICING — callers should say
+    False for a model with no entry in MODEL_PRICING — callers should say
     "no estimate" rather than render $0.00, which reads as "free".
     """
-    price = CLAUDE_PRICING.get(model)
+    price = MODEL_PRICING.get(model)
     # No default: a budget we cannot read must not be quoted as some other
     # number. `priced: False` makes the caller say so instead.
     budget = coerce_budget(max_tokens)
@@ -649,11 +727,12 @@ def _call_claude(
     max_tokens: int | None = None,
     effort: str | None = None,
 ) -> tuple:
-    """Returns (text, meta). `meta` carries what a benchmark needs — token
+    """Streaming Claude call with prompt caching on the system block.
+
+    Returns (text, meta). `meta` carries what a benchmark needs — token
     counts, the settings actually used, and stop_reason — because the point of
     varying effort and budget is comparing the results, and a bare string
-    cannot be compared."""
-    """Streaming Claude call with prompt caching on the system block.
+    cannot be compared.
 
     We stream — even though we wait for the full response — because the
     non-streaming endpoint has a synchronous HTTP deadline the SDK treats
@@ -749,6 +828,121 @@ def _call_claude(
         "stop_reason": stop_reason,
     }
     return text, meta
+
+
+def _call_openai(
+    model: str,
+    user_prompt: str,
+    max_tokens: int | None = None,
+    effort: str | None = None,
+) -> tuple:
+    """ChatGPT call. Same `(text, meta)` contract as `_call_claude`.
+
+    Uses the RESPONSES endpoint rather than chat completions: these models
+    take reasoning as `reasoning={"effort": ...}`, the budget as
+    `max_output_tokens`, and the system prompt as `instructions` — one field
+    each, where chat completions would need `reasoning_effort` plus a system
+    message plus `max_completion_tokens`. Both endpoints serve these models;
+    this one maps onto the page's three controls without translation.
+
+    The meta dict mirrors `_call_claude`'s exactly, because /benchmark prices
+    and renders a Claude cell and a ChatGPT cell through the same code.
+    """
+    try:
+        from openai import OpenAI
+    except ImportError as exc:  # pragma: no cover - depends on the env
+        raise RuntimeError(
+            "openai is not installed. `pip install 'dash-excalidraw[ai]'` "
+            "or `pip install openai`."
+        ) from exc
+
+    # CHATGPT_API_KEY is this site's name for it; OPENAI_API_KEY is the SDK's
+    # own convention and is accepted as a fallback so a machine that already
+    # has one exported does not need a second copy under a different name.
+    key = os.environ.get("CHATGPT_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError(
+            "No ChatGPT key. Set CHATGPT_API_KEY (or OPENAI_API_KEY) in .env."
+        )
+
+    client = OpenAI(api_key=key)
+    # The same fallback as the Claude path, and for the same reason: this is
+    # the PAID path, so an unreadable control sends a known-safe budget rather
+    # than raising after the user has committed to spending.
+    max_tokens = coerce_budget(max_tokens, OPENAI_MAX_TOKENS.get(model, 24000))
+
+    requested_effort = (
+        effort if effort is not None else (MODEL_EFFORT.get(model) or "none")
+    )
+    # One resolver, shared with the cost label — see `_call_claude`.
+    applied_effort = resolve_effort(model, requested_effort)
+
+    kwargs = {}
+    if applied_effort:
+        kwargs["reasoning"] = {"effort": applied_effort}
+
+    resp = client.responses.create(
+        model=model,
+        instructions=SYSTEM_PROMPT,
+        input=user_prompt,
+        max_output_tokens=max_tokens,
+        **kwargs,
+    )
+
+    # Truncation is a STATUS here, not an exception and not a stop_reason:
+    # the call returns 200 with `status="incomplete"`. Surfacing it beats
+    # handing _parse_and_normalize a half-written JSON object, which fails
+    # several frames from the cause. Same treatment as Claude's max_tokens.
+    status = getattr(resp, "status", None)
+    if status == "incomplete":
+        reason = getattr(getattr(resp, "incomplete_details", None), "reason", None)
+        if reason == "max_output_tokens":
+            raise ValueError(
+                f"Truncated: hit the {max_tokens:,}-token budget mid-response, so "
+                f"the JSON is incomplete. This budget covers reasoning AND output, "
+                f"so raise it (or lower effort) for a scene this size. On "
+                f"/benchmark this is a real data point, not a bug."
+            )
+        raise ValueError(f"ChatGPT returned an incomplete response ({reason}).")
+
+    text = getattr(resp, "output_text", "") or ""
+    usage = getattr(resp, "usage", None)
+    meta = {
+        "model": model,
+        "effort": applied_effort or "none",
+        "effort_ignored": False,  # every model in OPENAI_MODELS accepts effort
+        "max_tokens": max_tokens,
+        "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+        "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+        # No cache-read field on this endpoint's usage object. Reported as 0
+        # rather than omitted so the two providers' metas stay the same shape.
+        "cache_read": 0,
+        "stop_reason": status,
+    }
+    return text, meta
+
+
+def call_model(
+    model: str,
+    user_prompt: str,
+    max_tokens: int | None = None,
+    effort: str | None = None,
+) -> tuple:
+    """Dispatch by model id. This is what makes a cross-provider comparison
+    possible: /benchmark hands it a list of model ids and never has to know
+    which company answers."""
+    provider = PROVIDER_OF.get(model)
+    if provider == "chatgpt":
+        return _call_openai(model, user_prompt, max_tokens, effort)
+    if provider == "claude":
+        return _call_claude(model, user_prompt, max_tokens, effort)
+    # Gemini lands here on purpose. It is reachable through `_call_gemini`
+    # with its own signature; it is not comparable, and raising says so
+    # rather than returning a cell with no cost and no matched settings.
+    raise ValueError(
+        f"{model} cannot be run as a comparison cell — it has no budget/effort "
+        "controls or no published price. See COMPARABLE_MODELS."
+    )
 
 
 def _call_gemini(model: str, user_prompt: str) -> str:

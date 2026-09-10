@@ -6,7 +6,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet.
+#### Added
+
+- **ChatGPT joins Claude and Gemini on `/ai-agent`, and `/benchmark` can now
+  compare the two head to head.** GPT-6 Astra, GPT-5.6 Sol, Terra and Luna,
+  called through the Responses API — `instructions`, `input`,
+  `max_output_tokens` and `reasoning.effort` map onto the page's existing
+  three controls with no translation. `/benchmark` gains a third axis,
+  "Compare models", which puts a Claude cell and a ChatGPT cell in one sweep
+  at the same prompt, budget and effort; matched settings and a real price on
+  each are what make it a comparison rather than two runs. Set
+  `CHATGPT_API_KEY` (`OPENAI_API_KEY` is accepted as a fallback).
+
+  Gemini is deliberately excluded from the compare axis: it takes neither
+  control and has no published price in this app, so a cell for it could show
+  a drawing but never an honest cost. It stays available on `/ai-agent`.
+
+#### Changed
+
+- **The AI provider SDKs are now installed on deployed commits, which makes
+  `/ai-agent` and `/benchmark` able to call anything there for the first
+  time.** `anthropic`, `openai` and `google-genai` were an optional
+  `pyproject` extra that the Dockerfile never installs, so on every deploy to
+  date the pages rendered and every click died on an `ImportError`. They are
+  now pinned in `requirements.txt`. **This is a behaviour change to the
+  deployed site, not a dependency bump** — those pages can spend real API
+  credits from the moment a key is present in the environment. Both remain
+  behind `tier: auth` and the signed-in spend gate.
+
+  Pinned with `==` rather than a floor, to the versions this app's calls have
+  actually gone through (`anthropic==0.96.0`, `openai==3.11.0`,
+  `google-genai==1.73.1`). `anthropic` 1.4.0 and `google-genai` 2.22.0 both
+  exist and are each a major version ahead; the commit that first makes the
+  lane live is the wrong place to discover what changed in them.
+
+#### Fixed
+
+- `_call_claude` carried two consecutive docstrings, so `help()` showed only
+  the first and the streaming rationale was invisible. Merged. Pre-existing;
+  harmless at runtime, invisible to flake8 and pytest.
 
 ## [1.0.0] — unreleased
 

@@ -1,16 +1,17 @@
-"""AI agent: turn a prompt into an Excalidraw scene via Claude or Gemini.
+"""AI agent: turn a prompt into an Excalidraw scene via Claude, ChatGPT or Gemini.
 
 Uses the command dispatch pattern (`command: updateScene`) — no component
 remount, no key-hack needed on the canvas. The same page compares Claude
-Opus 4.7 / Sonnet 4.6 against Gemini 2.5 Flash / Pro side by side.
+Opus 4.7 / Sonnet 4.6 against GPT-6 Astra and Gemini 2.5 Flash / Pro.
 
 Ship-readiness checklist for using this in your own production app:
 
 1. Set env vars:
      ANTHROPIC_API_KEY=...
+     CHATGPT_API_KEY=...      # OPENAI_API_KEY is accepted as a fallback
      GEMINI_API_KEY=...
-   Either is optional — the page disables the corresponding provider if
-   the key is missing.
+   All three are optional — the page disables the corresponding provider
+   if its key is missing, and says which name it looked for.
 
 2. This page calls the LLM synchronously inside a Dash callback. For
    production-grade UX, wrap with a background task queue (Celery / RQ
@@ -45,14 +46,17 @@ from lib.scene_ai import (  # shared with /benchmark — see lib/scene_ai.py
     CLAUDE_PRICING,
     EFFORT_CAPABLE,
     EFFORT_LEVELS,
+    MODEL_EFFORT,
+    MODEL_MAX_TOKENS,
+    OPENAI_MODELS,
     available_models,
+    call_model,
     estimate_cost,
     format_money,
     supported_efforts,
     GEMINI_MAX_TOKENS,
     GEMINI_MODELS,
     SYSTEM_PROMPT,
-    _call_claude,
     _call_gemini,
     _cleanup_json,
     _coerce_types,
@@ -75,6 +79,11 @@ OFFERED_CLAUDE_MODELS, CLAUDE_MODELS_VERIFIED = available_models(CLAUDE_MODELS)
 # ---------------------------------------------------------------------------
 
 HAS_CLAUDE_KEY = bool(os.environ.get("ANTHROPIC_API_KEY"))
+# CHATGPT_API_KEY is this site's name; OPENAI_API_KEY is the SDK's own and is
+# accepted so a machine that already exports one needs no second copy.
+HAS_CHATGPT_KEY = bool(os.environ.get("CHATGPT_API_KEY")) or bool(
+    os.environ.get("OPENAI_API_KEY")
+)
 HAS_GEMINI_KEY = bool(os.environ.get("GEMINI_API_KEY")) or bool(
     os.environ.get("GOOGLE_API_KEY")
 )
@@ -160,6 +169,16 @@ def _provider_status():
     )
     items.append(
         dmc.Badge(
+            "ChatGPT: ready"
+            if HAS_CHATGPT_KEY
+            else "ChatGPT: missing CHATGPT_API_KEY",
+            color="green" if HAS_CHATGPT_KEY else "red",
+            variant="light",
+            size="sm",
+        )
+    )
+    items.append(
+        dmc.Badge(
             "Gemini: ready"
             if HAS_GEMINI_KEY
             else "Gemini: missing GEMINI_API_KEY",
@@ -201,11 +220,18 @@ component = dmc.Stack(
                                     label="Provider",
                                     data=[
                                         {"value": "claude", "label": "Claude"},
+                                        {"value": "chatgpt", "label": "ChatGPT"},
                                         {"value": "gemini", "label": "Gemini"},
                                     ],
+                                    # Land on a provider whose key is present,
+                                    # so the first click can succeed. Falls
+                                    # back to Claude, which then reports the
+                                    # missing key by name.
                                     value=(
                                         "claude"
                                         if HAS_CLAUDE_KEY
+                                        else "chatgpt"
+                                        if HAS_CHATGPT_KEY
                                         else "gemini"
                                         if HAS_GEMINI_KEY
                                         else "claude"
@@ -491,8 +517,8 @@ def _show_estimate(provider, model, effort, max_tokens):
     (quote the typical, and the bill can exceed the quote). Showing both makes
     the spread itself the information — it is exactly what effort controls.
     """
-    if provider != "claude":
-        # Gemini has no entry in CLAUDE_PRICING and its billing is not ours to
+    if provider == "gemini":
+        # Gemini has no entry in MODEL_PRICING and its billing is not ours to
         # quote. Saying so beats rendering $0.00, which reads as "free".
         return "No cost estimate for Gemini here — see Google's pricing.", "gray"
 
@@ -562,7 +588,11 @@ def _show_estimate(provider, model, effort, max_tokens):
     prevent_initial_call=False,
 )
 def _sync_models(provider):
-    data = OFFERED_CLAUDE_MODELS if provider == "claude" else GEMINI_MODELS
+    data = {
+        "claude": OFFERED_CLAUDE_MODELS,
+        "chatgpt": OPENAI_MODELS,
+        "gemini": GEMINI_MODELS,
+    }.get(provider, OFFERED_CLAUDE_MODELS)
     return data, data[0]["value"]
 
 
@@ -586,10 +616,13 @@ def _sync_model_defaults(model):
     capable = model in EFFORT_CAPABLE
     allowed = set(supported_efforts(model))
     data = [e for e in EFFORT_LEVELS if e["value"] in allowed]
-    effort = (CLAUDE_EFFORT.get(model) or "none") if capable else "none"
+    # MODEL_* rather than CLAUDE_*: switching to a ChatGPT model has to pick
+    # up ITS defaults, or the run would carry the previous provider's budget
+    # and the comparison would be measuring configuration, not models.
+    effort = (MODEL_EFFORT.get(model) or "none") if capable else "none"
     if effort not in allowed:
         effort = "none"
-    return effort, data, CLAUDE_MAX_TOKENS.get(model, 32000), not capable
+    return effort, data, MODEL_MAX_TOKENS.get(model, 32000), not capable
 
 
 # Clear stays SYNCHRONOUS and is its own callback. It is instant, and routing
@@ -700,6 +733,15 @@ def _generate(_gen_clicks, provider, model, effort, max_tokens, prompt):
             no_update,
             no_update,
         )
+    if provider == "chatgpt" and not HAS_CHATGPT_KEY:
+        return (
+            no_update,
+            "CHATGPT_API_KEY / OPENAI_API_KEY is not set in the environment.",
+            "red",
+            no_update,
+            no_update,
+            no_update,
+        )
     if provider == "gemini" and not HAS_GEMINI_KEY:
         return (
             no_update,
@@ -712,10 +754,13 @@ def _generate(_gen_clicks, provider, model, effort, max_tokens, prompt):
 
     started = time.monotonic()
     try:
-        if provider == "claude":
-            raw, meta = _call_claude(model, prompt.strip(), max_tokens, effort)
-        else:
+        if provider == "gemini":
+            # Its own signature: no budget, no effort, no meta to report.
             raw, meta = _call_gemini(model, prompt.strip()), None
+        else:
+            # One call for Claude and ChatGPT alike — `call_model` dispatches
+            # on the model id, so adding a provider does not add a branch.
+            raw, meta = call_model(model, prompt.strip(), max_tokens, effort)
     except Exception as exc:  # noqa: BLE001 - surface any provider error
         traceback.print_exc()
         return (
