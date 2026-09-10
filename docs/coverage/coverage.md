@@ -69,20 +69,22 @@ them from Python does nothing; the readout on the right is what they are for.
 `sceneVersion` is a single integer and far cheaper to compare than diffing
 `elements`, which is the reason it exists.
 
-### One thing that does not turn off again
+### How the links switch behaves with more than one canvas
 
-**`hideExcalidrawLinks` is one-way within a page load.** Switching it on
-injects a stylesheet; switching it back off does not remove it, so the links
-stay hidden until you reload.
+`hideExcalidrawLinks` works in both directions — switch it off and the links
+come back, without a reload.
 
-That is deliberate in the sense that the stylesheet is shared by every canvas
-on the page — removing it for one component would unhide the links under all
-of them — but the effect is that the prop is not symmetric, and nothing in the
-API says so. Set it once at mount and treat it as fixed; if you need the links
-back, reload with `hideExcalidrawLinks=False`.
+It is worth knowing how, because the mechanism shows through when a page has
+more than one canvas. It is a single stylesheet shared by every canvas, and it
+is reference counted: installed for the first canvas that asks for it, removed
+only when the LAST canvas that wanted it stops. So one canvas turning the
+links back on cannot unhide them under its neighbours — you will see the
+switch flip with nothing changing, and that is correct. Unmounting counts as
+letting go, so a canvas that disappears no longer leaves the stylesheet behind.
 
-The switch below is left live rather than disabled, because watching it fail
-to reverse is a more useful thing to know than being prevented from trying.
+This used to be one-way: the sheet went in and never came out, and nothing in
+the API said so. R5 fixed it; the page you are reading described the old
+behaviour until then.
 
 ### Live demo
 

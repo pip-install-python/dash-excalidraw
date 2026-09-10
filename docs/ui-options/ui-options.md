@@ -29,11 +29,18 @@ off your app, so this wrapper hides them by default:
 DashExcalidraw(id="canvas", hideExcalidrawLinks=False)  # show them again
 ```
 
-`hideExcalidrawLinks` defaults to `True`. It works by injecting one
-stylesheet — shared across every canvas on the page, injected once — rather
-than by patching the menu, so it survives Excalidraw re-rendering its
-chrome. Set it to `False` if you would rather credit the upstream project in
-the UI; nothing else about the menu changes either way.
+`hideExcalidrawLinks` defaults to `True` and works in **both directions** —
+set it to `False` and the links come back, no reload needed. It injects one
+stylesheet rather than patching the menu, so it survives Excalidraw
+re-rendering its chrome.
+
+That stylesheet is shared by every canvas on the page and reference counted:
+it goes in for the first canvas that wants the links hidden and comes out only
+when the last one stops wanting that. On a single-canvas page the switch is
+simply symmetric. On a page with several, a canvas turning the links back on
+while another still hides them will appear to do nothing — the neighbour's
+preference wins, which is the only behaviour that stops one component changing
+another's chrome. [Coverage](/coverage) has the multi-canvas detail.
 
 ### Live demo
 

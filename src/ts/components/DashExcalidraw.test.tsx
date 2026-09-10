@@ -20,7 +20,7 @@
 import React from 'react';
 import {act, render, waitFor} from '@testing-library/react';
 
-import DashExcalidraw from './DashExcalidraw';
+import DashExcalidraw, {__hideLinksRefCount} from './DashExcalidraw';
 import {
     __apiRequested,
     __deliverApi,
@@ -275,5 +275,99 @@ describe('export correlation', () => {
         expect(payload.id).toBe('e-fail');
         expect(payload.result).toBeNull();
         expect(String(payload.error)).toContain('boom');
+    });
+});
+
+/**
+ * `hideExcalidrawLinks` must work in BOTH directions.
+ *
+ * It used to be one-way: the effect returned early on `!hideExcalidrawLinks`
+ * and the cleanup deliberately kept the stylesheet, so turning the prop off
+ * did nothing until a reload — and nothing in the API said so. The sharing
+ * that motivated it is real (one sheet serves every canvas on the page), so
+ * the fix is reference counting rather than removal: the LAST canvas that
+ * wants it off is the one that takes it away.
+ */
+describe('hideExcalidrawLinks is symmetric', () => {
+    const styleEl = () => document.getElementById('dash-excalidraw-hide-links');
+
+    beforeEach(() => {
+        expect(__hideLinksRefCount()).toBe(0);
+        expect(styleEl()).toBeNull();
+    });
+
+    test('on installs the stylesheet, off removes it again', async () => {
+        const setProps = jest.fn();
+        const {rerender} = render(
+            <DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks />,
+        );
+        await flush();
+        expect(styleEl()).not.toBeNull();
+        expect(__hideLinksRefCount()).toBe(1);
+
+        rerender(
+            <DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks={false} />,
+        );
+        await flush();
+        expect(styleEl()).toBeNull();
+        expect(__hideLinksRefCount()).toBe(0);
+
+        // …and back on again, within the same page load.
+        rerender(<DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks />);
+        await flush();
+        expect(styleEl()).not.toBeNull();
+    });
+
+    test('the LAST canvas to turn it off is the one that removes it', async () => {
+        const setProps = jest.fn();
+        const Two = ({a, b}: {a: boolean; b: boolean}) => (
+            <>
+                <DashExcalidraw id="a" setProps={setProps} hideExcalidrawLinks={a} />
+                <DashExcalidraw id="b" setProps={setProps} hideExcalidrawLinks={b} />
+            </>
+        );
+
+        const {rerender} = render(<Two a b />);
+        await flush();
+        expect(__hideLinksRefCount()).toBe(2);
+        expect(styleEl()).not.toBeNull();
+
+        // One canvas opts out — the other still wants the links hidden.
+        rerender(<Two a={false} b />);
+        await flush();
+        expect(__hideLinksRefCount()).toBe(1);
+        expect(styleEl()).not.toBeNull();
+
+        // Now the last one does.
+        rerender(<Two a={false} b={false} />);
+        await flush();
+        expect(__hideLinksRefCount()).toBe(0);
+        expect(styleEl()).toBeNull();
+    });
+
+    test('unmounting releases the stylesheet too', async () => {
+        const setProps = jest.fn();
+        const {unmount} = render(
+            <DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks />,
+        );
+        await flush();
+        expect(styleEl()).not.toBeNull();
+
+        unmount();
+        expect(__hideLinksRefCount()).toBe(0);
+        expect(styleEl()).toBeNull();
+    });
+
+    test('the selector names the host Excalidraw 0.18 actually renders', async () => {
+        const setProps = jest.fn();
+        render(<DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks />);
+        await flush();
+        const css = styleEl()!.textContent || '';
+        // 0.18 ships x.com/excalidraw; the shipped bundle contains no
+        // twitter.com/excalidraw at all, so a selector naming only the retired
+        // host matched that anchor never.
+        expect(css).toContain('x.com/excalidraw');
+        expect(css).toContain('github.com/excalidraw/excalidraw');
+        expect(css).toContain('discord.gg/UexuTaE');
     });
 });

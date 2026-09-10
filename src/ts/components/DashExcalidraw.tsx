@@ -83,6 +83,64 @@ type CommandShape = {
 let warnedCommitToHistory = false;
 let warnedBadCaptureUpdate = false;
 
+/* -------------------------------------------------------------------------
+ *  The "hide the vendor links" stylesheet, REFERENCE-COUNTED.
+ *
+ *  One stylesheet serves every canvas on the page, which is why the first
+ *  implementation never removed it: dropping it for one component would
+ *  unhide the links under all the others. The cost was that
+ *  `hideExcalidrawLinks` was one-way — turning it off did nothing until a
+ *  reload, and nothing in the API said so.
+ *
+ *  Counting fixes both halves. The sheet is installed on the first canvas
+ *  that wants it and removed only when the LAST one stops wanting it, so a
+ *  single canvas toggles freely while a page full of them still cannot pull
+ *  the sheet out from under its neighbours. Unmounting releases too — before
+ *  this, a canvas could leave the sheet behind after it was gone.
+ *
+ *  `x.com/excalidraw` is in the selector because Excalidraw 0.18 renders it:
+ *  grepping the shipped bundle finds `x.com/excalidraw` and no
+ *  `twitter.com/excalidraw` at all. The old selector named only the retired
+ *  host, so it matched that anchor never. It survived because the group is
+ *  matched by its GitHub link too — but only while all three sit in ONE
+ *  group, which is the vendor's layout decision, not ours. The retired host
+ *  is kept alongside so a 0.17 canvas is still covered.
+ * ------------------------------------------------------------------------- */
+const HIDE_LINKS_STYLE_ID = 'dash-excalidraw-hide-links';
+const HIDE_LINKS_CSS = `
+    /* Hide the "Excalidraw links" menu group (GitHub / Discord / X). */
+    .dropdown-menu-group:has(a[href*="github.com/excalidraw/excalidraw"]),
+    .dropdown-menu-group:has(a[href*="discord.gg/UexuTaE"]),
+    .dropdown-menu-group:has(a[href*="x.com/excalidraw"]),
+    .dropdown-menu-group:has(a[href*="twitter.com/excalidraw"]) {
+        display: none !important;
+    }
+`;
+let hideLinksRefCount = 0;
+
+function acquireHideLinksStyle(): void {
+    if (typeof document === 'undefined') return;
+    hideLinksRefCount += 1;
+    if (document.getElementById(HIDE_LINKS_STYLE_ID)) return;
+    const el = document.createElement('style');
+    el.id = HIDE_LINKS_STYLE_ID;
+    el.textContent = HIDE_LINKS_CSS;
+    document.head.appendChild(el);
+}
+
+function releaseHideLinksStyle(): void {
+    if (typeof document === 'undefined') return;
+    hideLinksRefCount = Math.max(0, hideLinksRefCount - 1);
+    if (hideLinksRefCount > 0) return;
+    const el = document.getElementById(HIDE_LINKS_STYLE_ID);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+
+/** Test seam: the live count, so a harness can assert the bookkeeping. */
+export function __hideLinksRefCount(): number {
+    return hideLinksRefCount;
+}
+
 type Props = {
     // ---- sizing ---------------------------------------------------------
     /**
@@ -194,9 +252,15 @@ type Props = {
     interceptLinkOpens?: boolean;
 
     /**
-     * When `true` (default), injects CSS that hides Excalidraw's built-in
-     * "Excalidraw links" menu group (GitHub / Discord / Twitter). Set to
-     * `false` if you actually want those links visible to users.
+     * When `true` (default), hides Excalidraw's built-in "Excalidraw links"
+     * menu group (GitHub / Discord / X). Set to `false` to show them again.
+     *
+     * Works in both directions within a page load. It is implemented as one
+     * stylesheet shared by every canvas on the page, reference counted, so a
+     * canvas turning it off cannot unhide the links under its neighbours —
+     * the sheet is removed when the LAST canvas that wanted it stops wanting
+     * it, and unmounting counts as stopping.
+     * @default true
      */
     hideExcalidrawLinks?: boolean;
 
@@ -798,26 +862,14 @@ const DashExcalidraw = (props: Props) => {
         setIsMounted(true);
     }, []);
 
-    // Inject a global stylesheet (once) that hides Excalidraw's
-    // "Excalidraw links" menu group. Opt-out via `hideExcalidrawLinks={false}`.
+    // The shared "hide the vendor links" stylesheet, acquired while this
+    // canvas wants it and released when it stops — on a prop flip OR on
+    // unmount. Reference counted at module scope, so the sheet survives as
+    // long as ANY canvas on the page still wants it. See the counter above.
     useEffect(() => {
-        if (!hideExcalidrawLinks || typeof document === 'undefined') return;
-        const styleId = 'dash-excalidraw-hide-links';
-        if (document.getElementById(styleId)) return;
-        const el = document.createElement('style');
-        el.id = styleId;
-        el.textContent = `
-            /* Hide the "Excalidraw links" menu group (GitHub / Discord / Twitter). */
-            .dropdown-menu-group:has(a[href*="github.com/excalidraw/excalidraw"]),
-            .dropdown-menu-group:has(a[href*="discord.gg/UexuTaE"]),
-            .dropdown-menu-group:has(a[href*="twitter.com/excalidraw"]) {
-                display: none !important;
-            }
-        `;
-        document.head.appendChild(el);
-        return () => {
-            // keep the stylesheet around — multiple Dash components share it.
-        };
+        if (!hideExcalidrawLinks) return undefined;
+        acquireHideLinksStyle();
+        return releaseHideLinksStyle;
     }, [hideExcalidrawLinks]);
 
     const writeProps = useCallback(

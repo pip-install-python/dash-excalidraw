@@ -137,10 +137,14 @@ Keyword arguments:
     @,default,\"600px\".
 
 - hideExcalidrawLinks (boolean; optional):
-    When `True` (default), injects CSS that hides Excalidraw's
-    built-in \"Excalidraw links\" menu group (GitHub / Discord /
-    Twitter). Set to `False` if you actually want those links visible
-    to users.
+    When `True` (default), hides Excalidraw's built-in \"Excalidraw
+    links\" menu group (GitHub / Discord / X). Set to `False` to show
+    them again.  Works in both directions within a page load. It is
+    implemented as one stylesheet shared by every canvas on the page,
+    reference counted, so a canvas turning it off cannot unhide the
+    links under its neighbours — the sheet is removed when the LAST
+    canvas that wanted it stops wanting it, and unmounting counts as
+    stopping. @,default,True.
 
 - initialData (dict; optional):
     Initial scene contents passed to Excalidraw on mount. Shape:
