@@ -148,6 +148,29 @@ Return ONLY the JSON object — no preamble, no markdown fence, no epilogue."""
 # Fable 5.1 is the most capable of these and is listed second on purpose — at
 # $10/$50 per 1M it is twice Opus 5's rate, and making the most expensive
 # model the default is the owner's decision, not a side effect of adding it.
+# Every environment variable that can put a PAID API within reach of this
+# module. Two things read this tuple, and that is the whole point:
+#
+#   * tests/conftest.py blanks every name in it before anything imports the
+#     app, so the suite cannot make a real call off a developer's .env;
+#   * tests/test_provider_keys.py asserts this tuple equals the set of key
+#     names actually read below.
+#
+# A hand-kept list in conftest is what let this hole exist: CHATGPT_API_KEY
+# was added to the app and not to the list, so on any machine holding that
+# key the suite would have called the live endpoint. Deriving the list from
+# the module means the next provider cannot reopen it by being forgotten.
+PROVIDER_KEY_VARS = (
+    "ANTHROPIC_API_KEY",
+    # The SDK reads this one too, without this module ever naming it — so
+    # blanking only ANTHROPIC_API_KEY would still leave a configured client.
+    "ANTHROPIC_AUTH_TOKEN",
+    "CHATGPT_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+)
+
 CLAUDE_MODELS = [
     {"value": "claude-opus-5", "label": "Claude Opus 5"},
     {"value": "claude-fable-5-1", "label": "Claude Fable 5.1"},

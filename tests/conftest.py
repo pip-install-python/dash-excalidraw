@@ -50,6 +50,20 @@ SECRET_ENV_KEYS = (
 for _key in SECRET_ENV_KEYS:
     os.environ[_key] = ""
 
+# Provider API keys are NOT listed above, deliberately. They are imported from
+# the module that reads them, because a hand-kept copy is exactly how the last
+# hole opened: CHATGPT_API_KEY reached lib/scene_ai.py and never reached a
+# list here, so on any machine with that key exported the suite would have
+# called the live provider. `lib.scene_ai` imports nothing from the app and
+# calls nothing at import, so pulling it in this early is safe.
+#
+# tests/test_provider_keys.py asserts this set equals the names the module
+# actually reads, so adding a provider without touching this file goes red.
+from lib.scene_ai import PROVIDER_KEY_VARS  # noqa: E402
+
+for _key in PROVIDER_KEY_VARS:
+    os.environ[_key] = ""
+
 # --- 2. Keep app state out of the repo --------------------------------------
 # Without this the suite appends its own hits to the checked-out
 # visitor_analytics.json, which then shows up in `git status` and, worse, in

@@ -68,11 +68,24 @@ from docs._shared import canvas_frame, sync_canvas_theme
 
 sync_canvas_theme("ai-canvas")
 
-# The models this deployment's key can actually call, not just the ones this
-# page knows how to price. `verified` False means the check could not run —
-# the full table is offered and the page says so rather than implying it was
-# checked. See lib/scene_ai.available_models.
-OFFERED_CLAUDE_MODELS, CLAUDE_MODELS_VERIFIED = available_models(CLAUDE_MODELS)
+def offered_claude_models():
+    """The models this deployment's key can actually call.
+
+    CALLED FROM A CALLBACK, NEVER AT IMPORT. Page modules are imported while
+    Dash registers pages, so a module-level call here put an outbound request
+    to api.anthropic.com on the BOOT path — every start of the app blocked on
+    a third party being reachable, and the answer was then frozen for the life
+    of the process. It was visible in the boot log, one line under
+    "Loading docs/ai-agent/ai-agent.md":
+
+        INFO:httpx:HTTP Request: GET https://api.anthropic.com/v1/models...
+
+    `available_models` caches, so calling it per callback costs one request
+    for the process and no more. `verified` False means the check could not
+    run — the full table is offered and the page SAYS so rather than implying
+    it was checked.
+    """
+    return available_models(CLAUDE_MODELS)
 
 # ---------------------------------------------------------------------------
 # Prompt template (domain-specific instructions for producing Excalidraw JSON)
@@ -187,17 +200,11 @@ def _provider_status():
             size="sm",
         )
     )
-    if not CLAUDE_MODELS_VERIFIED:
-        # Say it rather than imply a check happened. No key, no network, or a
-        # provider error — the list is the full table and unconfirmed.
-        items.append(
-            dmc.Badge(
-                "model list unverified",
-                color="yellow",
-                variant="light",
-                size="sm",
-            )
-        )
+    # The "unverified" badge cannot be decided here: knowing whether the
+    # model list was checked means asking the provider, and this function runs
+    # at page-import time. The slot is filled by `_sync_models` on first
+    # render instead.
+    items.append(html.Div(id="ai-model-check"))
     return dmc.Group(items, gap="xs")
 
 
@@ -243,8 +250,10 @@ component = dmc.Stack(
                                 dmc.Select(
                                     id="ai-model",
                                     label="Model",
-                                    data=OFFERED_CLAUDE_MODELS,
-                                    value=OFFERED_CLAUDE_MODELS[0]["value"],
+                                    # Filled by `_sync_models` on first
+                                    # render — see offered_claude_models().
+                                    data=[],
+                                    value=None,
                                 ),
                                 span={"base": 12, "sm": 4},
                             ),
@@ -255,7 +264,7 @@ component = dmc.Stack(
                                     description="Thinking depth",
                                     data=EFFORT_LEVELS,
                                     value=CLAUDE_EFFORT.get(
-                                        OFFERED_CLAUDE_MODELS[0]["value"]
+                                        CLAUDE_MODELS[0]["value"]
                                     ) or "low",
                                 ),
                                 span={"base": 6, "sm": 2},
@@ -266,7 +275,7 @@ component = dmc.Stack(
                                     label="Max tokens",
                                     description="Caps thinking + output together",
                                     value=CLAUDE_MAX_TOKENS[
-                                        OFFERED_CLAUDE_MODELS[0]["value"]
+                                        CLAUDE_MODELS[0]["value"]
                                     ],
                                     min=1000,
                                     max=128000,
@@ -517,6 +526,13 @@ def _show_estimate(provider, model, effort, max_tokens):
     (quote the typical, and the bill can exceed the quote). Showing both makes
     the spread itself the information — it is exactly what effort controls.
     """
+    if not model:
+        # First paint: the model control ships empty and `_sync_models` fills
+        # it. Without this the estimate would flash "no price on file for
+        # this model", which reads as a broken model rather than an unfinished
+        # render.
+        return "Checking which models this key can call…", "gray"
+
     if provider == "gemini":
         # Gemini has no entry in MODEL_PRICING and its billing is not ours to
         # quote. Saying so beats rendering $0.00, which reads as "free".
@@ -584,16 +600,31 @@ def _show_estimate(provider, model, effort, max_tokens):
 @callback(
     Output("ai-model", "data"),
     Output("ai-model", "value"),
+    Output("ai-model-check", "children"),
     Input("ai-provider", "value"),
     prevent_initial_call=False,
 )
 def _sync_models(provider):
-    data = {
-        "claude": OFFERED_CLAUDE_MODELS,
-        "chatgpt": OPENAI_MODELS,
-        "gemini": GEMINI_MODELS,
-    }.get(provider, OFFERED_CLAUDE_MODELS)
-    return data, data[0]["value"]
+    """Fill the model list, and say whether it was verified.
+
+    `prevent_initial_call=False` is load-bearing: this fires on first render,
+    which is what lets the control ship empty and the availability check stay
+    off the import path.
+    """
+    if provider == "chatgpt":
+        return OPENAI_MODELS, OPENAI_MODELS[0]["value"], None
+    if provider == "gemini":
+        return GEMINI_MODELS, GEMINI_MODELS[0]["value"], None
+
+    data, verified = offered_claude_models()
+    badge = (
+        None
+        if verified
+        else dmc.Badge(
+            "model list unverified", color="yellow", variant="light", size="sm"
+        )
+    )
+    return data, data[0]["value"], badge
 
 
 @callback(
