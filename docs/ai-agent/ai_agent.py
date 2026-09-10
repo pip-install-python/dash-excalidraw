@@ -45,6 +45,7 @@ from lib.scene_ai import (  # shared with /benchmark — see lib/scene_ai.py
     CLAUDE_PRICING,
     EFFORT_CAPABLE,
     EFFORT_LEVELS,
+    supported_efforts,
     GEMINI_MAX_TOKENS,
     GEMINI_MODELS,
     SYSTEM_PROMPT,
@@ -453,6 +454,7 @@ def _sync_models(provider):
 
 @callback(
     Output("ai-effort", "value"),
+    Output("ai-effort", "data"),
     Output("ai-max-tokens", "value"),
     Output("ai-effort", "disabled", allow_duplicate=True),
     Input("ai-model", "value"),
@@ -468,8 +470,12 @@ def _sync_model_defaults(model):
     reject the parameter, so the UI cannot offer a choice the API will 400 on.
     """
     capable = model in EFFORT_CAPABLE
+    allowed = set(supported_efforts(model))
+    data = [e for e in EFFORT_LEVELS if e["value"] in allowed]
     effort = (CLAUDE_EFFORT.get(model) or "none") if capable else "none"
-    return effort, CLAUDE_MAX_TOKENS.get(model, 32000), not capable
+    if effort not in allowed:
+        effort = "none"
+    return effort, data, CLAUDE_MAX_TOKENS.get(model, 32000), not capable
 
 
 # Clear stays SYNCHRONOUS and is its own callback. It is instant, and routing

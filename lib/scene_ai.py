@@ -208,6 +208,35 @@ EFFORT_LEVELS = [
 # to be gated per model, not merely defaulted.
 EFFORT_CAPABLE = {"claude-opus-5", "claude-opus-4-7", "claude-sonnet-4-6"}
 
+# Effort levels a model rejects even though it accepts the parameter at all.
+# MEASURED from `GET /v1/models/{id}` on this deployment's key (2026-09-10):
+# claude-sonnet-4-6 reports `effort.xhigh.supported: false` while every other
+# level is true. It is the only model in CLAUDE_MODELS with a hole in the
+# middle of its range — Haiku 4.5 rejects the parameter outright and is
+# already handled by EFFORT_CAPABLE.
+#
+# Sending it is a 400, and this app was offering `xhigh` in the selector for
+# that model. The level is therefore DROPPED rather than sent, which is the
+# same treatment Haiku's effort already gets: the request runs at the model's
+# own default and the meta reports `effort_ignored`.
+EFFORT_UNSUPPORTED = {
+    "claude-sonnet-4-6": {"xhigh"},
+}
+
+
+def supported_efforts(model: str) -> list[str]:
+    """The effort levels this model will actually accept, for a UI to offer.
+
+    A selector that lists a level the API rejects is a 400 waiting for
+    whoever picks it, and the failure arrives as a provider error rather than
+    as anything the page could explain.
+    """
+    if model not in EFFORT_CAPABLE:
+        return ["none"]
+    blocked = EFFORT_UNSUPPORTED.get(model, set())
+    return [e["value"] for e in EFFORT_LEVELS if e["value"] not in blocked]
+
+
 # USD per 1M tokens (input, output), for the cost estimate in the status line.
 # A LOCAL ESTIMATE, not a bill: it ignores cache-write premiums and every
 # discount, and published prices change. It is here so a benchmark sweep can
@@ -405,6 +434,11 @@ def _call_claude(
     if effort is None:
         effort = CLAUDE_EFFORT.get(model) or "none"
     applied_effort = effort if (effort != "none" and model in EFFORT_CAPABLE) else None
+    # ...and drop a level this particular model rejects. Sonnet 4.6 takes
+    # every level except `xhigh`; sending it returns a 400, which is a worse
+    # outcome than running at the model's own default and reporting that.
+    if applied_effort in EFFORT_UNSUPPORTED.get(model, set()):
+        applied_effort = None
 
     kwargs = {}
     if applied_effort:
