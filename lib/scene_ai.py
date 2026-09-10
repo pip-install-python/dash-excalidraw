@@ -143,8 +143,14 @@ Return ONLY the JSON object — no preamble, no markdown fence, no epilogue."""
 
 # Claude model options (exact IDs — no date suffixes; these strings are
 # complete as written).
+# ORDER MATTERS: both pages use CLAUDE_MODELS[0] as the default selection, so
+# whatever sits first is what an unattended visitor spends money on. Claude
+# Fable 5.1 is the most capable of these and is listed second on purpose — at
+# $10/$50 per 1M it is twice Opus 5's rate, and making the most expensive
+# model the default is the owner's decision, not a side effect of adding it.
 CLAUDE_MODELS = [
     {"value": "claude-opus-5", "label": "Claude Opus 5"},
+    {"value": "claude-fable-5-1", "label": "Claude Fable 5.1"},
     {"value": "claude-opus-4-7", "label": "Claude Opus 4.7"},
     {"value": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6"},
     {"value": "claude-haiku-4-5", "label": "Claude Haiku 4.5"},
@@ -176,6 +182,14 @@ CLAUDE_MAX_TOKENS = {
     # worst case; `stop_reason: max_tokens` is surfaced explicitly below, so
     # a scene that genuinely needs more says so instead of truncating quietly.
     "claude-opus-5": 24000,
+    # Claude Fable 5.1 gets Opus 5's tighter budget for the same reason, and
+    # the reason is stronger here: thinking is ALWAYS on (it cannot be
+    # disabled — `{"type": "disabled"}` and `budget_tokens` both 400), and
+    # its turns on hard prompts run longer than any model above. Same
+    # arithmetic as the Opus 5 note: max_tokens bounds thinking AND text, so
+    # this is a latency ceiling first and a safety net second. At $50/1M
+    # output it is also the budget that bounds the worst-case bill.
+    "claude-fable-5-1": 24000,
     "claude-opus-4-7": 64000,
     "claude-sonnet-4-6": 64000,
     "claude-haiku-4-5": 64000,
@@ -206,7 +220,12 @@ EFFORT_LEVELS = [
 # Models that accept output_config.effort at all. Haiku 4.5 rejects it, so
 # sending a level there is a 400 rather than a slower answer — the control has
 # to be gated per model, not merely defaulted.
-EFFORT_CAPABLE = {"claude-opus-5", "claude-opus-4-7", "claude-sonnet-4-6"}
+EFFORT_CAPABLE = {
+    "claude-opus-5",
+    "claude-fable-5-1",
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+}
 
 # Effort levels a model rejects even though it accepts the parameter at all.
 # MEASURED from `GET /v1/models/{id}` on this deployment's key (2026-09-10):
@@ -244,6 +263,12 @@ def supported_efforts(model: str) -> list[str]:
 # able to vary effort and budget.
 CLAUDE_PRICING = {
     "claude-opus-5": (5.0, 25.0),
+    # The most expensive row here by a factor of two on both sides. Worth
+    # knowing before a /benchmark sweep: six variants that each run their
+    # whole 24K budget is $7.20 of output on Fable 5.1 against $3.60 on
+    # Opus 5, which is exactly what the page's cost estimate exists to show
+    # you BEFORE you press the button.
+    "claude-fable-5-1": (10.0, 50.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
@@ -251,6 +276,11 @@ CLAUDE_PRICING = {
 
 CLAUDE_EFFORT = {
     "claude-opus-5": "low",
+    # Same default as Opus 5 and for the same reason — a scene is structured
+    # output, not deep reasoning, and low effort on this model is stronger
+    # than high effort on older ones. On /benchmark you can sweep it up to
+    # `max`; this is only where the selector starts.
+    "claude-fable-5-1": "low",
     "claude-opus-4-7": "low",
     "claude-sonnet-4-6": None,
     "claude-haiku-4-5": None,
@@ -402,6 +432,217 @@ def coerce_budget(value, default: int | None = None) -> int | None:
     return max(BUDGET_MIN, min(BUDGET_MAX, int(number)))
 
 
+# ---------------------------------------------------------------------------
+#  Cost estimation — what both pages show BEFORE you press the button.
+# ---------------------------------------------------------------------------
+#
+# The honest shape of this problem: `max_tokens` is a CEILING, not a spend.
+# What you actually pay is whatever the model generates under it, and on a
+# thinking model that number moves with effort. So a single figure is either
+# pessimistic enough to be useless or optimistic enough to mislead — both
+# pages therefore show a typical figure AND the ceiling.
+#
+# HOW MUCH OF THE BUDGET AN EFFORT LEVEL ACTUALLY USES. Two real measurements
+# exist, both Opus 5 on the "microservices architecture diagram" prompt (the
+# same run recorded against CLAUDE_MAX_TOKENS above):
+#
+#     effort=low          12,276 of 24,000  -> 0.51
+#     default (= high)    43,702 of 64,000  -> 0.68
+#
+# `low` and `high` below are those two numbers. **medium, xhigh and max are
+# interpolated and extrapolated from them, not measured**, and all four come
+# from ONE prompt on ONE model — a denser scene or a different model will land
+# somewhere else. That is exactly why the ceiling is always shown next to the
+# estimate: the fraction is a guide, the ceiling is the bound.
+EFFORT_UTILISATION = {
+    "none": 0.70,  # no output_config sent -> the model's own default (high)
+    "low": 0.51,   # MEASURED
+    "medium": 0.60,
+    "high": 0.68,  # MEASURED
+    "xhigh": 0.85,
+    "max": 0.95,
+}
+
+# Input is priced too, but it is not where the money goes. The system prompt
+# is ~1,300 tokens; against a 24K output budget that is 1.1% of the bill on
+# every model in CLAUDE_PRICING, and prompt caching drops the repeat cost to a
+# tenth of that. It is included below at the UNCACHED rate so the ceiling is a
+# genuine upper bound rather than one with a term quietly missing.
+#
+# The token count is a chars/4 approximation rather than a `count_tokens` call:
+# this runs on every keystroke of the controls, and a network round-trip per
+# edit would be a poor trade for a term worth ~1% — an approximation error here
+# is a rounding error on a rounding error.
+_APPROX_INPUT_TOKENS = len(SYSTEM_PROMPT) // 4 + 200  # + headroom for the user prompt
+
+
+def resolve_effort(model: str, effort: str | None) -> str | None:
+    """The effort that will ACTUALLY be sent, or None for "send nothing".
+
+    Shared by the estimator and `_call_claude` on purpose. A label that
+    reported a level the request then dropped would be a lie in the one place
+    the user is deciding whether to spend money — and "Haiku ignores effort"
+    is exactly the case where a naive estimate would over-quote.
+    """
+    if effort is None:
+        effort = CLAUDE_EFFORT.get(model) or "none"
+    if effort == "none" or model not in EFFORT_CAPABLE:
+        return None
+    # MOVED here from `_call_claude` (b94ff6e lines 436-441): the same rule, in
+    # the one place that now decides what actually gets sent. A level the model
+    # rejects is dropped rather than sent. Sonnet 4.6 takes
+    # every level except `xhigh`; sending it returns a 400, which is a worse
+    # outcome than running at the model's own default and saying so.
+    if effort in EFFORT_UNSUPPORTED.get(model, set()):
+        return None
+    return effort
+
+
+def estimate_cost(
+    model: str,
+    effort: str | None,
+    max_tokens: int | None,
+) -> dict:
+    """Typical and worst-case dollars for one call.
+
+    Returns ``{typical, ceiling, fraction, effort, priced}``. ``priced`` is
+    False for a model with no entry in CLAUDE_PRICING — callers should say
+    "no estimate" rather than render $0.00, which reads as "free".
+    """
+    price = CLAUDE_PRICING.get(model)
+    # No default: a budget we cannot read must not be quoted as some other
+    # number. `priced: False` makes the caller say so instead.
+    budget = coerce_budget(max_tokens)
+    if not price or not budget:
+        return {
+            "typical": 0.0,
+            "ceiling": 0.0,
+            "fraction": 0.0,
+            "effort": None,
+            "budget": budget or 0,
+            "priced": False,
+            # Which of the two reasons, so a caller can say the useful one.
+            "reason": "budget" if not budget else "model",
+        }
+
+    in_price, out_price = price
+    applied = resolve_effort(model, effort)
+    # An unsent effort means the model's own default, which is `high`-like.
+    fraction = EFFORT_UTILISATION.get(applied or "none", 0.70)
+
+    fixed_input = _APPROX_INPUT_TOKENS * in_price / 1_000_000
+    ceiling = fixed_input + budget * out_price / 1_000_000
+    typical = fixed_input + budget * fraction * out_price / 1_000_000
+    return {
+        "typical": typical,
+        "ceiling": ceiling,
+        "fraction": fraction,
+        "effort": applied,
+        # The budget AS PARSED — callers render this rather than re-reading
+        # the raw control, so the number in the label is the number that was
+        # priced and, through the same helper, the number that gets sent.
+        "budget": budget,
+        "priced": True,
+        "reason": None,
+    }
+
+
+def format_money(amount: float) -> str:
+    """Dollars at a precision that does not round a real cost to $0.00."""
+    if amount >= 1:
+        return f"${amount:,.2f}"
+    if amount >= 0.01:
+        return f"${amount:.2f}"
+    return f"${amount:.3f}"
+
+
+# ---------------------------------------------------------------------------
+#  Which of these models the deployment can actually use
+# ---------------------------------------------------------------------------
+#
+# The tables above are a static list of what this page KNOWS how to price and
+# drive. They are not a statement about what a given API key is entitled to
+# call, and offering a model the key cannot use turns a click into a provider
+# error the page cannot explain.
+#
+# So the offered list is the table intersected with what the key reports from
+# `GET /v1/models`. Three things about that intersection are deliberate:
+#
+# 1. ALIAS-AWARE, because a naive `in` is wrong here. MEASURED 2026-09-10: the
+#    endpoint lists `claude-haiku-4-5-20251001` while the table (and every
+#    working call this page has ever made) uses the alias `claude-haiku-4-5`.
+#    A literal set-intersection would have removed a model that demonstrably
+#    works. A table id counts as available if the endpoint lists it verbatim
+#    OR lists it with an 8-digit date suffix.
+# 2. LAZY AND CACHED, not called at import. A network round trip at module
+#    import would slow every boot, fail every offline test, and make the docs
+#    site's start-up depend on a third party being reachable.
+# 3. FAIL-SOFT. No key, no network, a 500 from the provider — the page still
+#    works and still offers the full table, marked UNVERIFIED. A verification
+#    step that can take the page down is worse than the problem it solves.
+_AVAILABILITY_CACHE: dict[str, tuple[list[str], bool]] = {}
+
+# How long an id has to be after the alias to count as a dated snapshot.
+_DATE_SUFFIX_LEN = 8
+
+
+def _matches(table_id: str, reported: set[str]) -> bool:
+    """Is `table_id` callable given what the endpoint listed?"""
+    if table_id in reported:
+        return True
+    prefix = f"{table_id}-"
+    for r in reported:
+        if r.startswith(prefix):
+            rest = r[len(prefix):]
+            if len(rest) == _DATE_SUFFIX_LEN and rest.isdigit():
+                return True
+    return False
+
+
+def _reported_claude_models(timeout: float = 6.0) -> set[str] | None:
+    """Model ids this deployment's Anthropic key can see, or None if unknown."""
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        return None
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=key, timeout=timeout, max_retries=0)
+        return {m.id for m in client.models.list(limit=100)}
+    except Exception:  # noqa: BLE001 - any failure means "unknown", never fatal
+        return None
+
+
+def available_models(
+    models: list[dict], provider: str = "claude", refresh: bool = False
+) -> tuple[list[dict], bool]:
+    """`(offered, verified)` — the table filtered by what the key can call.
+
+    `verified` False means the check could not run; the caller should offer the
+    full table and SAY it is unverified rather than imply it was checked.
+    """
+    if not refresh and provider in _AVAILABILITY_CACHE:
+        ids, verified = _AVAILABILITY_CACHE[provider]
+        if not verified:
+            return list(models), False
+        return [m for m in models if m["value"] in ids], True
+
+    reported = _reported_claude_models() if provider == "claude" else None
+    if reported is None:
+        _AVAILABILITY_CACHE[provider] = ([], False)
+        return list(models), False
+
+    offered = [m for m in models if _matches(m["value"], reported)]
+    # Never return an empty selector: if the intersection wipes the table out,
+    # something is wrong with the check rather than with every model at once.
+    if not offered:
+        _AVAILABILITY_CACHE[provider] = ([], False)
+        return list(models), False
+
+    _AVAILABILITY_CACHE[provider] = ([m["value"] for m in offered], True)
+    return offered, True
+
+
 def _call_claude(
     model: str,
     user_prompt: str,
@@ -431,14 +672,13 @@ def _call_claude(
     # Resolve effort: the caller's choice, falling back to the per-model
     # default. "none" is a real choice, not a missing value — it means send
     # no output_config so the model's own default applies.
-    if effort is None:
-        effort = CLAUDE_EFFORT.get(model) or "none"
-    applied_effort = effort if (effort != "none" and model in EFFORT_CAPABLE) else None
-    # ...and drop a level this particular model rejects. Sonnet 4.6 takes
-    # every level except `xhigh`; sending it returns a 400, which is a worse
-    # outcome than running at the model's own default and reporting that.
-    if applied_effort in EFFORT_UNSUPPORTED.get(model, set()):
-        applied_effort = None
+    requested_effort = (
+        effort if effort is not None else (CLAUDE_EFFORT.get(model) or "none")
+    )
+    # One resolver, shared with the cost label. If this request dropped a level
+    # the estimate had priced in, the number the user agreed to spend and the
+    # request they actually sent would disagree.
+    applied_effort = resolve_effort(model, requested_effort)
 
     kwargs = {}
     if applied_effort:
@@ -498,7 +738,9 @@ def _call_claude(
         "model": model,
         "effort": applied_effort or "none",
         "effort_ignored": bool(
-            effort and effort != "none" and model not in EFFORT_CAPABLE
+            requested_effort
+            and requested_effort != "none"
+            and resolve_effort(model, requested_effort) is None
         ),
         "max_tokens": max_tokens,
         "input_tokens": getattr(usage, "input_tokens", 0) or 0,

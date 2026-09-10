@@ -45,6 +45,9 @@ from lib.scene_ai import (  # shared with /benchmark — see lib/scene_ai.py
     CLAUDE_PRICING,
     EFFORT_CAPABLE,
     EFFORT_LEVELS,
+    available_models,
+    estimate_cost,
+    format_money,
     supported_efforts,
     GEMINI_MAX_TOKENS,
     GEMINI_MODELS,
@@ -60,6 +63,12 @@ from lib.scene_ai import (  # shared with /benchmark — see lib/scene_ai.py
 from docs._shared import canvas_frame, sync_canvas_theme
 
 sync_canvas_theme("ai-canvas")
+
+# The models this deployment's key can actually call, not just the ones this
+# page knows how to price. `verified` False means the check could not run —
+# the full table is offered and the page says so rather than implying it was
+# checked. See lib/scene_ai.available_models.
+OFFERED_CLAUDE_MODELS, CLAUDE_MODELS_VERIFIED = available_models(CLAUDE_MODELS)
 
 # ---------------------------------------------------------------------------
 # Prompt template (domain-specific instructions for producing Excalidraw JSON)
@@ -159,6 +168,17 @@ def _provider_status():
             size="sm",
         )
     )
+    if not CLAUDE_MODELS_VERIFIED:
+        # Say it rather than imply a check happened. No key, no network, or a
+        # provider error — the list is the full table and unconfirmed.
+        items.append(
+            dmc.Badge(
+                "model list unverified",
+                color="yellow",
+                variant="light",
+                size="sm",
+            )
+        )
     return dmc.Group(items, gap="xs")
 
 
@@ -197,8 +217,8 @@ component = dmc.Stack(
                                 dmc.Select(
                                     id="ai-model",
                                     label="Model",
-                                    data=CLAUDE_MODELS,
-                                    value=CLAUDE_MODELS[0]["value"],
+                                    data=OFFERED_CLAUDE_MODELS,
+                                    value=OFFERED_CLAUDE_MODELS[0]["value"],
                                 ),
                                 span={"base": 12, "sm": 4},
                             ),
@@ -209,7 +229,7 @@ component = dmc.Stack(
                                     description="Thinking depth",
                                     data=EFFORT_LEVELS,
                                     value=CLAUDE_EFFORT.get(
-                                        CLAUDE_MODELS[0]["value"]
+                                        OFFERED_CLAUDE_MODELS[0]["value"]
                                     ) or "low",
                                 ),
                                 span={"base": 6, "sm": 2},
@@ -219,7 +239,9 @@ component = dmc.Stack(
                                     id="ai-max-tokens",
                                     label="Max tokens",
                                     description="Caps thinking + output together",
-                                    value=CLAUDE_MAX_TOKENS[CLAUDE_MODELS[0]["value"]],
+                                    value=CLAUDE_MAX_TOKENS[
+                                        OFFERED_CLAUDE_MODELS[0]["value"]
+                                    ],
                                     min=1000,
                                     max=128000,
                                     step=4000,
@@ -237,6 +259,17 @@ component = dmc.Stack(
                                 span={"base": 12, "sm": 1},
                             ),
                         ],
+                    ),
+                    # What this run will cost, BEFORE it is triggered. The
+                    # three controls above are all cost levers and none of
+                    # them says so on its own — model sets the rate, max
+                    # tokens sets the ceiling, effort sets how much of that
+                    # ceiling gets used.
+                    dmc.Alert(
+                        id="ai-estimate",
+                        color="gray",
+                        variant="light",
+                        p="xs",
                     ),
                     dmc.Textarea(
                         id="ai-prompt",
@@ -442,13 +475,94 @@ component = dmc.Stack(
 
 
 @callback(
+    Output("ai-estimate", "children"),
+    Output("ai-estimate", "color"),
+    Input("ai-provider", "value"),
+    Input("ai-model", "value"),
+    Input("ai-effort", "value"),
+    Input("ai-max-tokens", "value"),
+)
+def _show_estimate(provider, model, effort, max_tokens):
+    """Price this run before it happens.
+
+    Two numbers, not one, and the reason is in `estimate_cost`: `max_tokens`
+    is a ceiling, so a single figure has to choose between being pessimistic
+    (quote the ceiling, and every real run looks like a bargain) or optimistic
+    (quote the typical, and the bill can exceed the quote). Showing both makes
+    the spread itself the information — it is exactly what effort controls.
+    """
+    if provider != "claude":
+        # Gemini has no entry in CLAUDE_PRICING and its billing is not ours to
+        # quote. Saying so beats rendering $0.00, which reads as "free".
+        return "No cost estimate for Gemini here — see Google's pricing.", "gray"
+
+    est = estimate_cost(model, effort, max_tokens)
+    if not est["priced"]:
+        if est["reason"] == "budget":
+            # Mid-edit the NumberInput hands over whatever is in the box, so
+            # this is a normal transient state, not an error worth shouting
+            # about. It used to raise here and 500 the callback.
+            return "Set a max-token budget to see the cost.", "gray"
+        return "No price on file for this model — cost unknown.", "gray"
+
+    # The budget AS PRICED, not the raw control value — they differ whenever
+    # the box holds something like "64.000" or a number outside the range.
+    budget = est["budget"]
+    sent = est["effort"]
+    effort_phrase = (
+        f"effort {sent}" if sent else "no effort set (the model's own default)"
+    )
+
+    parts = [
+        dmc.Text(
+            [
+                "About ",
+                dmc.Text(format_money(est["typical"]), fw=700, span=True),
+                f" for this run · at most {format_money(est['ceiling'])} "
+                f"if it uses the whole budget.",
+            ],
+            size="sm",
+        ),
+        dmc.Text(
+            f"{budget:,} max tokens · {effort_phrase} · "
+            f"typical run uses ~{est['fraction']:.0%} of the budget.",
+            size="xs",
+            c="dimmed",
+        ),
+    ]
+
+    # Say it out loud when the level in the selector is not the level that
+    # will be sent — otherwise the estimate looks wrong rather than the
+    # control looking inert.
+    if effort and effort != "none" and sent is None:
+        parts.append(
+            dmc.Text(
+                f"This model ignores the effort parameter, so “{effort}” "
+                f"costs the same as any other level here.",
+                size="xs",
+                c="dimmed",
+                fs="italic",
+            )
+        )
+
+    return dmc.Stack(parts, gap=2), "gray"
+
+
+# Clear stays SYNCHRONOUS and is its own callback. It is instant, and routing
+# it through a job queue would add a round trip to a button whose whole value
+# is that it responds immediately. Splitting it also keeps `ctx.triggered_id`
+# out of the background worker, where callback context is a different animal.
+#
+# It writes the same Output as the generator, so one of the two must declare
+# allow_duplicate — this one, because it is the secondary writer.
+@callback(
     Output("ai-model", "data"),
     Output("ai-model", "value"),
     Input("ai-provider", "value"),
     prevent_initial_call=False,
 )
 def _sync_models(provider):
-    data = CLAUDE_MODELS if provider == "claude" else GEMINI_MODELS
+    data = OFFERED_CLAUDE_MODELS if provider == "claude" else GEMINI_MODELS
     return data, data[0]["value"]
 
 

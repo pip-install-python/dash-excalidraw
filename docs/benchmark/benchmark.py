@@ -35,6 +35,8 @@ from lib.scene_ai import (
     CLAUDE_PRICING,
     EFFORT_CAPABLE,
     coerce_budget,
+    estimate_cost,
+    format_money,
     _call_claude,
     _parse_and_normalize,
     _spend_allowed,
@@ -49,17 +51,29 @@ EFFORT_CHOICES = ["none", "low", "medium", "high", "xhigh", "max"]
 BUDGET_CHOICES = ["4000", "8000", "16000", "24000", "48000", "64000"]
 
 
-def _estimate(model: str, budget: int, n: int) -> float:
-    """Rough worst-case dollar estimate for a run of `n` variants.
+def _variants(axis, efforts, budgets, fixed_budget, fixed_effort) -> list[tuple]:
+    """The exact `(model, effort, budget)` list a run will execute.
 
-    Deliberately pessimistic: it prices every variant as if it used its whole
-    budget. Under-promising here is the right bias — the number exists to stop
-    someone accidentally spending $5, not to be accurate to the cent.
+    Shared by the estimate and the runner on purpose. The old estimate priced
+    `n` variants at the LARGEST selected budget, which over-quoted every
+    budget sweep — a 4K+8K+16K comparison was billed as three times 16K. It
+    also ignored effort entirely, so the control the page exists to explore
+    made no difference to the number above the button. Building the real list
+    once fixes both, and means the quote cannot drift from the run.
+
+    coerce_budget, not int(): `bm-fixed-budget` is a NumberInput and hands over
+    whatever is in the box mid-edit ("64.000" crashed the estimate on
+    /ai-agent). The chips are our own strings and always parse, but they go
+    through the same door so there is one rule.
     """
-    price = CLAUDE_PRICING.get(model)
-    if not price:
-        return 0.0
-    return n * budget * price[1] / 1_000_000
+    if axis == "effort":
+        budget = coerce_budget(fixed_budget, 24000)
+        return [(e, budget) for e in (efforts or [])[:MAX_VARIANTS]]
+    return [
+        (fixed_effort or "low", coerce_budget(b, 24000))
+        for b in (budgets or [])[:MAX_VARIANTS]
+    ]
+
 
 
 def _panel(result: dict):
@@ -276,25 +290,48 @@ component = dmc.Stack(
     Input("bm-efforts", "value"),
     Input("bm-budgets", "value"),
     Input("bm-fixed-budget", "value"),
+    Input("bm-fixed-effort", "value"),
 )
-def _estimate_cost(model, axis, efforts, budgets, fixed_budget):
-    """Price the matrix BEFORE it runs. See the module docstring."""
-    # coerce_budget, not int(): `bm-fixed-budget` is a NumberInput and hands
-    # over whatever is in the box mid-edit, and "64.000" is not an int.
-    if axis == "effort":
-        n = len(efforts or [])
-        budget = coerce_budget(fixed_budget, 24000)
-    else:
-        n = len(budgets or [])
-        budget = max(
-            (coerce_budget(b, 24000) for b in budgets or ["24000"]), default=24000
-        )
+def _estimate_cost(model, axis, efforts, budgets, fixed_budget, fixed_effort):
+    """Price the matrix BEFORE it runs, per variant.
 
-    n = min(n, MAX_VARIANTS)
-    if not n:
+    One click is up to six paid calls, so this number is the last thing between
+    a curious click and a real bill. Each variant is priced at ITS OWN effort
+    and budget, and the ceiling sits beside the typical figure because
+    `max_tokens` bounds the spend without determining it.
+
+    The old version priced `n` variants at the LARGEST selected budget, which
+    over-quoted every budget sweep — 4K+8K+16K billed as three times 16K — and
+    ignored effort entirely, so the control this page exists to explore made no
+    difference to the number above the button.
+    """
+    variants = _variants(axis, efforts, budgets, fixed_budget, fixed_effort)
+    if not variants:
         return "Select at least one variant."
-    est = _estimate(model, budget, n)
-    return f"{n} variant{'s' if n != 1 else ''} · up to ~${est:.2f} if every one uses its full budget"
+
+    ests = [estimate_cost(model, effort, budget) for effort, budget in variants]
+    if not all(x["priced"] for x in ests):
+        return f"{len(variants)} variants · no price on file for {model}."
+
+    typical = sum(x["typical"] for x in ests)
+    ceiling = sum(x["ceiling"] for x in ests)
+    n = len(variants)
+    sweeping = "effort" if axis == "effort" else "max tokens"
+    head = (
+        f"{n} variant{'s' if n != 1 else ''} varying {sweeping} · about "
+        f"{format_money(typical)} for the sweep, at most "
+        f"{format_money(ceiling)} if every one runs its budget out."
+    )
+    if axis == "budget" and n > 1:
+        lo = min(ests, key=lambda x: x["typical"])
+        hi = max(ests, key=lambda x: x["typical"])
+        head += (
+            f" Cheapest cell ~{format_money(lo['typical'])}, "
+            f"dearest ~{format_money(hi['typical'])}."
+        )
+    if model not in EFFORT_CAPABLE:
+        head += " (This model ignores effort, so every cell costs the same.)"
+    return head
 
 
 @callback(
@@ -328,14 +365,9 @@ def _run(_clicks, model, axis, efforts, budgets, fixed_budget, fixed_effort, pro
             "yellow",
         )
 
-    if axis == "effort":
-        variants = [
-            (e, int(fixed_budget or 24000)) for e in (efforts or [])[:MAX_VARIANTS]
-        ]
-    else:
-        variants = [
-            (fixed_effort or "low", int(b)) for b in (budgets or [])[:MAX_VARIANTS]
-        ]
+    # Same builder the estimate uses, so the run cannot execute a different
+    # matrix from the one that was priced above the button.
+    variants = _variants(axis, efforts, budgets, fixed_budget, fixed_effort)
 
     if not variants:
         return no_update, "Select at least one variant to compare.", "yellow"

@@ -30,6 +30,7 @@ from lib.scene_ai import (
     BUDGET_MIN,
     CLAUDE_MAX_TOKENS,
     coerce_budget,
+    estimate_cost,
 )
 
 
@@ -42,6 +43,11 @@ class TestTheStringThatCrashedIt:
     def test_other_separator_shapes_survive(self, value):
         assert coerce_budget(value) is not None
 
+    def test_the_estimate_prices_it_without_raising(self):
+        est = estimate_cost("claude-opus-5", "low", "64.000")
+        assert est["priced"] is True
+        assert est["budget"] == 64000
+
 
 class TestWhenItCannotBeRead:
     """An unreadable box is a normal mid-edit state, not an error."""
@@ -50,6 +56,12 @@ class TestWhenItCannotBeRead:
     def test_returns_the_default_rather_than_raising(self, value):
         assert coerce_budget(value) is None
         assert coerce_budget(value, 24000) == 24000
+
+    def test_the_estimate_says_which_thing_is_missing(self):
+        # A caller needs to tell "no budget yet" from "no price for this
+        # model" — they read very differently to someone about to spend.
+        assert estimate_cost("claude-opus-5", "low", "abc")["reason"] == "budget"
+        assert estimate_cost("gemini-2.5-pro", "low", 24000)["reason"] == "model"
 
     def test_the_paid_path_falls_back_to_the_model_default(self):
         # `_call_claude` passes the model's own budget as the default, so an
@@ -64,6 +76,14 @@ class TestClamping:
 
     def test_below_the_range_comes_up_to_the_floor(self):
         assert coerce_budget("500") == BUDGET_MIN
+
+    def test_the_estimate_prices_the_clamped_value_not_the_raw_one(self):
+        # The label must quote what will actually be sent. Pricing 999,999
+        # tokens while the request sends 128,000 would over-quote by 8x.
+        est = estimate_cost("claude-opus-5", "low", "999999")
+        assert est["budget"] == BUDGET_MAX
+        at_max = estimate_cost("claude-opus-5", "low", BUDGET_MAX)["ceiling"]
+        assert est["ceiling"] == pytest.approx(at_max)
 
 
 class TestOrdinaryValues:
