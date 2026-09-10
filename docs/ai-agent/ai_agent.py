@@ -911,13 +911,19 @@ def _stream_tick(_n, run):
             "payload": {"elements": elements, "captureUpdate": "NEVER"},
         }
 
+    # A gap means elements the producer wrote can no longer be read back, so
+    # the canvas is missing shapes it was already shown. Saying nothing is how
+    # this last went unnoticed for a whole session — it just looked like the
+    # model drawing less.
+    lost_note = f" · {state['lost']} lost from the buffer" if state.get("lost") else ""
+
     if not state["done"]:
         plural = "s" if len(elements) != 1 else ""
         return (
             cmd,
             f"Drawing… {len(elements)} element{plural} so far "
-            f"({state['elapsed']:.0f}s)",
-            "gray",
+            f"({state['elapsed']:.0f}s){lost_note}",
+            "orange" if state.get("lost") else "gray",
             no_update, no_update, no_update, run_next, False,
         )
 
@@ -946,6 +952,12 @@ def _stream_tick(_n, run):
         run.get("provider"), run.get("model"), len(elements),
         state["elapsed"], state["meta"],
     )
+    if state.get("lost"):
+        status = (
+            f"{status}  ·  WARNING: {state['lost']} element(s) were generated "
+            f"but could not be read back, so this scene is incomplete."
+        )
+        return final_cmd, status, "orange", rebuilt, rebuilt, rebuilt, None, True
     return final_cmd, status, "green", rebuilt, rebuilt, rebuilt, None, True
 
 

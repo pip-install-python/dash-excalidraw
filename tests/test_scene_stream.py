@@ -390,3 +390,95 @@ class TestTheBrakes:
         # Counting a finished run would make the panic button report brakes it
         # did not apply.
         assert scene_stream.cancel_all() == 0
+
+
+class TestALongRunDoesNotEatItsOwnTail:
+    """The 358-second bug.
+
+    MEASURED on a real /ai-agent run against gpt-6-astra: 358 seconds long,
+    with RUN_TTL at 300. Elements written in the first minute expired while
+    the model was still drawing, so `take()` returned fewer and fewer of the
+    early ones — the canvas lost a shape for roughly every shape it gained and
+    plateaued at ~145. It looked exactly like a model that had stopped
+    drawing, and nothing logged anything.
+
+    The first probe of this MISSED it, and the reason is worth keeping: it
+    produced 300 elements in about a second, far inside the TTL. A buffer test
+    that runs fast cannot see an expiry bug. So these run slower than their
+    own idle TTL, on purpose.
+    """
+
+    @pytest.fixture
+    def short_ttls(self, monkeypatch):
+        # Idle TTL 2s, elements good for 32s: the same RELATIONSHIP as
+        # production (300s / 3900s), small enough to test in seconds.
+        monkeypatch.setattr(scene_stream, "RUN_TTL", 2.0)
+        monkeypatch.setattr(scene_stream, "MAX_RUN_SECONDS", 30.0)
+        monkeypatch.setattr(scene_stream, "ELEMENT_TTL", 32.0)
+
+    def test_every_element_survives_a_run_longer_than_the_idle_ttl(
+        self, short_ttls, monkeypatch
+    ):
+        many = [{"id": f"e{i}", "type": "freedraw"} for i in range(20)]
+        monkeypatch.setattr(
+            scene_stream, "stream_model", _stub_stream(many, delay=0.2)
+        )
+        run_id = scene_stream.start(model="stub", user_prompt="x")
+        state = _wait_done(run_id, timeout=20.0)
+
+        assert state["lost"] == 0
+        assert [e["id"] for e in state["all"]] == [f"e{i}" for i in range(20)], (
+            "the run outlived RUN_TTL and lost its earliest elements — this is "
+            "the 358s plateau, reproduced"
+        )
+
+    def test_the_scene_only_ever_grows_while_drawing(self, short_ttls, monkeypatch):
+        # The symptom as the owner described it: shapes disappearing as new
+        # ones arrive. Asserted directly rather than via the final count,
+        # because the final count alone cannot see a mid-run dip.
+        many = [{"id": f"e{i}", "type": "freedraw"} for i in range(20)]
+        monkeypatch.setattr(
+            scene_stream, "stream_model", _stub_stream(many, delay=0.2)
+        )
+        run_id = scene_stream.start(model="stub", user_prompt="x")
+
+        seen = 0
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline:
+            state = scene_stream.take(run_id, 0)
+            assert len(state["all"]) >= seen, (
+                f"the scene SHRANK from {seen} to {len(state['all'])} while "
+                f"still drawing"
+            )
+            seen = len(state["all"])
+            if state["done"]:
+                break
+            time.sleep(0.05)
+        assert seen == 20
+
+
+class TestAGapIsReportedNotSwallowed:
+    """Silence is what let the expiry bug run for a whole session.
+
+    `take()` skipped unreadable elements and returned a shorter list, which is
+    indistinguishable from a model that drew less. Whatever the next cause of
+    a gap turns out to be, it should announce itself.
+    """
+
+    def test_a_missing_element_is_counted(self, monkeypatch):
+        monkeypatch.setattr(scene_stream, "stream_model", _stub_stream(EL))
+        run_id = scene_stream.start(model="stub", user_prompt="x")
+        _wait_done(run_id)
+
+        scene_stream.cache().delete(f"run:{run_id}:el:0")
+
+        state = scene_stream.take(run_id, 0)
+        assert state["lost"] == 1, "an unreadable element was silently dropped"
+        assert len(state["all"]) == 1
+
+    def test_an_intact_run_reports_no_loss(self, monkeypatch):
+        # Non-vacuity: `lost` must not be permanently non-zero, or the
+        # assertion above would pass for the wrong reason.
+        monkeypatch.setattr(scene_stream, "stream_model", _stub_stream(EL))
+        run_id = scene_stream.start(model="stub", user_prompt="x")
+        assert _wait_done(run_id)["lost"] == 0

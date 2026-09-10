@@ -55,6 +55,22 @@ from lib.scene_ai import stream_model
 # on read, so nothing has to sweep.
 RUN_TTL = 300.0
 
+# ELEMENTS DO NOT GET RUN_TTL, and this is the whole reason the constant
+# exists separately. They used to, and the effect was a scene that stopped
+# growing: MEASURED on a real /ai-agent run against gpt-6-astra that took
+# 358 SECONDS, where RUN_TTL was 300. Elements written in the first minute
+# expired while the model was still drawing, so the canvas lost one shape for
+# roughly every shape it gained and the count plateaued around 145. It looked
+# exactly like the model refusing to draw more, and nothing anywhere logged a
+# thing.
+#
+# So an element's TTL has to outlive the longest run, not the longest IDLE
+# period. An hour is well past the worst case: the slowest observed rate is
+# ~2.5 seconds per element, and the largest budget this app offers (128K)
+# cannot produce anything like 1,400 elements before it is exhausted.
+MAX_RUN_SECONDS = 3600.0
+ELEMENT_TTL = MAX_RUN_SECONDS + RUN_TTL
+
 # Every worker on the instance must open the SAME directory or the sharing
 # does not happen — which is exactly the bug this module exists to avoid, in a
 # quieter form. Configurable because a container may want it on a mounted
@@ -129,7 +145,7 @@ def start(**call_kwargs: Any) -> str:
         try:
             for kind, payload in stream:
                 if kind == "element":
-                    c.set(_el_key(run_id, count), payload, expire=RUN_TTL)
+                    c.set(_el_key(run_id, count), payload, expire=ELEMENT_TTL)
                     count += 1
                 else:
                     final_meta = payload
@@ -209,6 +225,7 @@ def take(run_id: str, cursor: int) -> dict:
             "elements": [],
             "all": [],
             "cursor": cursor,
+            "lost": 0,
             "done": True,
             "cancelled": False,
             "error": None,
@@ -218,10 +235,18 @@ def take(run_id: str, cursor: int) -> dict:
 
     count = info.get("count", 0)
     everything = []
+    lost = 0
     for i in range(count):
         element = c.get(_el_key(run_id, i))
         if element is not None:
             everything.append(element)
+        else:
+            # A gap means an element the producer WROTE cannot be read back.
+            # Skipping it quietly is what made the expiry bug above look like
+            # a model that stopped drawing — the count simply came back
+            # smaller, with nothing to say why. Counted and reported instead,
+            # so the next cause of a gap announces itself.
+            lost += 1
 
     return {
         "found": True,
@@ -232,6 +257,9 @@ def take(run_id: str, cursor: int) -> dict:
         # leave one shape on the canvas at a time.
         "all": everything,
         "cursor": len(everything),
+        # Written by the producer but unreadable now. Non-zero means the
+        # scene on screen is INCOMPLETE and the page should say so.
+        "lost": lost,
         "done": bool(info.get("done")),
         "cancelled": bool(info.get("cancelled")),
         "error": info.get("error"),

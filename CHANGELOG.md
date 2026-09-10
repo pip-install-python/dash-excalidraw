@@ -59,6 +59,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- **A generation lasting longer than five minutes ate its own beginning.**
+  In-flight elements were stored with the same 300-second expiry used to
+  retire an idle run, so on a long generation the earliest elements expired
+  while the model was still drawing: the canvas lost roughly one shape for
+  every shape it gained and the count plateaued. Measured on a real 358-second
+  run that finished with 145 elements. Elements now carry an expiry that
+  outlives the longest possible run, and `take()` COUNTS elements it cannot
+  read back instead of quietly returning a shorter list — the silence is what
+  made this look like a model that had stopped drawing.
+
 - **Streamed elements were not normalised, so long scenes stopped growing.**
   Observed on `/ai-agent` with `gpt-6-astra`: past roughly 150 elements the
   canvas appeared to delete one shape for every new one. `updateScene`
