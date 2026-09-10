@@ -19,6 +19,9 @@ happened to be entitled to that day.
 
 from __future__ import annotations
 
+import sys
+import types
+
 import pytest
 
 from lib import scene_ai
@@ -97,15 +100,36 @@ class TestFailSoft:
 
     def test_a_raising_client_becomes_unknown_not_an_exception(self, monkeypatch):
         """The swallow happens in `_reported_claude_models`, so callers never
-        see an exception they would have to re-handle."""
+        see an exception they would have to re-handle.
 
-        class Boom:
-            def __init__(self, *a, **k):
-                raise RuntimeError("network on fire")
+        The stub is the point. An `import anthropic` HERE would make this test
+        require the SDK, and CI installs requirements.txt plus the leg's
+        extras, which names no anthropic — so a test of the fail-soft path
+        would itself fail for want of the thing whose absence it exists to
+        tolerate. Stubbing `sys.modules` measures the same path on any set.
+        """
+        stub = types.ModuleType("anthropic")
 
-        import anthropic
+        def boom(*a, **k):
+            raise RuntimeError("network on fire")
 
-        monkeypatch.setattr(anthropic, "Anthropic", Boom)
+        stub.Anthropic = boom
+        monkeypatch.setitem(sys.modules, "anthropic", stub)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")
+        assert scene_ai._reported_claude_models() is None
+
+    def test_the_sdk_not_being_installed_is_unknown_too(self, monkeypatch):
+        """CI's actual state, and the deployed site's until E2's pins land:
+        no anthropic on the path at all, so the import inside
+        `_reported_claude_models` raises ModuleNotFoundError. That has to
+        read as "unknown" like any other failure — an uncaught ImportError
+        here would take down every page that builds a model selector.
+
+        `None` in `sys.modules` is CPython's own "this import is blocked",
+        which is a truer simulation than deleting the entry (the real SDK
+        would just be re-imported from site-packages).
+        """
+        monkeypatch.setitem(sys.modules, "anthropic", None)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-a-real-key")
         assert scene_ai._reported_claude_models() is None
 
