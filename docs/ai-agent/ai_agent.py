@@ -43,7 +43,7 @@ from lib.scene_ai import (  # shared with /benchmark — see lib/scene_ai.py
     CLAUDE_EFFORT,
     CLAUDE_MAX_TOKENS,
     CLAUDE_MODELS,
-    CLAUDE_PRICING,
+    MODEL_PRICING,
     EFFORT_CAPABLE,
     EFFORT_LEVELS,
     MODEL_EFFORT,
@@ -130,7 +130,10 @@ def _benchmark_status(provider, model, element_count, elapsed, meta) -> str:
     if meta.get("cache_read"):
         bits.append(f"{meta['cache_read']:,} cached")
 
-    price = CLAUDE_PRICING.get(model)
+    # MODEL_PRICING, not CLAUDE_PRICING: a ChatGPT run priced from the Claude
+    # table finds nothing and silently reports no cost at all, which reads as
+    # "this was free".
+    price = MODEL_PRICING.get(model)
     if price and (out_tok or in_tok):
         cost = (in_tok * price[0] + out_tok * price[1]) / 1_000_000
         # Estimate, not a bill — see CLAUDE_PRICING.
@@ -139,8 +142,18 @@ def _benchmark_status(provider, model, element_count, elapsed, meta) -> str:
     if element_count:
         bits.append(f"{elapsed / element_count:.1f}s/element")
 
-    if meta.get("stop_reason") and meta["stop_reason"] != "end_turn":
-        bits.append(f"stop={meta['stop_reason']}")
+    # Say truncation in words. `stop=max_tokens` is accurate and means nothing
+    # to someone whose scene just stopped growing — and hitting the budget is
+    # the single most common reason a drawing comes out shorter than asked
+    # for, because the budget covers thinking AND output.
+    stop = meta.get("stop_reason")
+    if stop in ("max_tokens", "incomplete"):
+        bits.append(
+            f"TRUNCATED — hit the {meta['max_tokens']:,}-token budget; "
+            f"raise it or lower effort for a longer scene"
+        )
+    elif stop and stop not in ("end_turn", "completed"):
+        bits.append(f"stop={stop}")
 
     return f"{head}  ·  " + "  ·  ".join(bits)
 
@@ -322,6 +335,17 @@ component = dmc.Stack(
                                 leftSection="✨",
                                 color="indigo",
                                 loaderProps={"type": "dots"},
+                            ),
+                            # THE BRAKES. Enabled only while a run is in
+                            # flight, and filled (not subtle) because the
+                            # moment you want it is the moment you should not
+                            # have to hunt for it.
+                            dmc.Button(
+                                "Stop",
+                                id="ai-stop-btn",
+                                leftSection="■",
+                                color="red",
+                                disabled=True,
                             ),
                             dmc.Button(
                                 "Clear canvas",
@@ -926,8 +950,46 @@ def _stream_tick(_n, run):
 
 
 @callback(
+    Output("ai-status", "children", allow_duplicate=True),
+    Output("ai-status", "color", allow_duplicate=True),
+    Output("ai-run", "data", allow_duplicate=True),
+    Output("ai-stream-tick", "disabled", allow_duplicate=True),
+    Input("ai-stop-btn", "n_clicks"),
+    State("ai-run", "data"),
+    prevent_initial_call=True,
+)
+def _stop(_clicks, run):
+    """Press the brakes: stop the generation, keep what it has drawn.
+
+    Two things have to happen and only one of them is obvious. Disabling the
+    ticker stops the PAGE from polling — but the worker thread would carry on
+    pulling tokens to the full budget with nobody reading them, which is
+    exactly the cost this button exists to prevent. `scene_stream.cancel`
+    closes the provider stream, so billing stops at the tokens already
+    produced.
+
+    What is on the canvas stays there. A stop is not an undo: the shapes drawn
+    so far are usually the reason you are stopping.
+    """
+    if not run or not run.get("id"):
+        return no_update, no_update, no_update, True
+
+    scene_stream.cancel(run["id"])
+    drawn = len(scene_stream.take(run["id"], 0)["all"])
+    plural = "s" if drawn != 1 else ""
+    return (
+        f"Stopped. {drawn} element{plural} kept; no further tokens are being "
+        f"generated.",
+        "yellow",
+        None,
+        True,
+    )
+
+
+@callback(
     Output("ai-generate-btn", "loading"),
     Output("ai-generate-btn", "disabled"),
+    Output("ai-stop-btn", "disabled"),
     Output("ai-clear-btn", "disabled"),
     Output("ai-prompt", "disabled"),
     Output("ai-provider", "disabled"),
@@ -944,4 +1006,5 @@ def _lock_controls(tick_disabled):
     definition of "a run is in progress".
     """
     drawing = not tick_disabled
-    return (drawing,) * 7
+    # Stop is the one control that is enabled precisely when the rest are not.
+    return (drawing, drawing, not drawing) + (drawing,) * 5

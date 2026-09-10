@@ -1096,6 +1096,34 @@ def _delta_text(event) -> str:
     return text if isinstance(text, str) else ""
 
 
+def _normalize_streamed(element: Any, seen_ids: set) -> dict | None:
+    """Make one streamed element safe to hand straight to the canvas.
+
+    THE REGRESSION THIS FIXES. The blocking path ran the whole response
+    through `_parse_and_normalize` -> `_coerce_types`, which fills in the
+    fields Excalidraw needs (`version`, `versionNonce`, `seed`, `isDeleted`,
+    `updated`) and turns stringified numbers back into numbers. Streaming
+    dispatched raw model output to `updateScene` instead and skipped all of
+    it, so the two paths disagreed about what an element is.
+
+    AND THE DUPLICATE ID, which is the one that looks like magic. `updateScene`
+    reconciles BY ID: an incoming element whose id already exists REPLACES the
+    existing one rather than joining it. A model that repeats ids — which they
+    do once a scene gets long, especially after restarting a numbering scheme —
+    therefore makes the canvas delete one shape for every shape it adds, and
+    the element count plateaus instead of growing. Renaming the duplicate is
+    what keeps both shapes.
+    """
+    if not isinstance(element, dict):
+        return None
+    element_id = element.get("id")
+    if not isinstance(element_id, str) or not element_id or element_id in seen_ids:
+        element_id = f"el-{uuid.uuid4().hex[:12]}"
+    seen_ids.add(element_id)
+    normalized = _coerce_types({**element, "id": element_id})
+    return normalized if isinstance(normalized, dict) else None
+
+
 def stream_model(
     model: str,
     user_prompt: str,
@@ -1116,6 +1144,9 @@ def stream_model(
     """
     provider = PROVIDER_OF.get(model)
     parser = ElementStreamParser()
+    # Shared across the whole run: a duplicate id anywhere in the scene costs
+    # a shape, not just a duplicate of the one before it.
+    seen_ids: set = set()
 
     if provider == "claude":
         import anthropic
@@ -1141,7 +1172,9 @@ def stream_model(
         ) as stream:
             for event in stream:
                 for element in parser.feed(_delta_text(event)):
-                    yield ("element", element)
+                    normalized = _normalize_streamed(element, seen_ids)
+                    if normalized is not None:
+                        yield ("element", normalized)
             final = stream.get_final_message()
 
         stop = getattr(final, "stop_reason", None)
@@ -1192,16 +1225,17 @@ def stream_model(
     ) as stream:
         for event in stream:
             for element in parser.feed(_delta_text(event)):
-                yield ("element", element)
+                normalized = _normalize_streamed(element, seen_ids)
+                if normalized is not None:
+                    yield ("element", normalized)
         final = stream.get_final_response()
 
+    # Truncation is REPORTED here, not raised — unlike the non-streaming
+    # `_call_openai`, which raises because it has nothing to show. By this
+    # point the elements that did arrive are already on the canvas and are
+    # perfectly good shapes; turning that into an exception would present a
+    # partial success as a failure. The page names the budget in the status.
     status = getattr(final, "status", None)
-    if status == "incomplete":
-        reason = getattr(getattr(final, "incomplete_details", None), "reason", None)
-        raise ValueError(
-            f"Truncated: hit the {budget:,}-token budget mid-response ({reason}). "
-            f"This budget covers reasoning AND output — raise it or lower effort."
-        )
     usage = getattr(final, "usage", None)
     yield (
         "done",

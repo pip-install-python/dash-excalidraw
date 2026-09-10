@@ -27,6 +27,7 @@ ENDS — a mock that yields forever would hang the suite rather than fail it.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -274,3 +275,118 @@ class TestProgressIsVisibleBeforeTheEnd:
         run_id = scene_stream.start(model="stub", user_prompt="x")
         state = _wait_done(run_id)
         assert state["done"] and state["meta"]["model"] == "stub"
+
+
+class TestTheBrakes:
+    """Stopping has to stop the SPENDING, not just the polling.
+
+    The distinction is the whole feature. Disabling the page's Interval makes
+    the drawing appear to stop while the worker keeps pulling tokens to the
+    full budget with nobody reading them — the bill arrives anyway. So the
+    assertion below is not "the run reports cancelled"; it is that the
+    generator was CLOSED, which is what unwinds the `with client.…stream(...)`
+    block and hangs up on the provider.
+    """
+
+    def test_cancel_closes_the_provider_stream(self, monkeypatch):
+        closed = {"yes": False}
+        released = threading.Event()
+
+        def slow_stream(**_kwargs):
+            try:
+                for i in range(1000):
+                    yield ("element", {"id": f"e{i}", "type": "rectangle"})
+                    time.sleep(0.02)
+                yield ("done", {"model": "stub"})
+            except GeneratorExit:
+                # What `stream.close()` raises at the suspended yield. In the
+                # real generator this is the point where the `with` block
+                # unwinds and the HTTP response is closed.
+                closed["yes"] = True
+                released.set()
+                raise
+            finally:
+                released.set()
+
+        monkeypatch.setattr(scene_stream, "stream_model", slow_stream)
+        run_id = scene_stream.start(model="stub", user_prompt="x")
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if scene_stream.take(run_id, 0)["all"]:
+                break
+            time.sleep(0.01)
+
+        assert scene_stream.cancel(run_id) is True
+        assert released.wait(5.0), "the worker never released the stream"
+        assert closed["yes"], (
+            "the generator was not closed — the provider would have kept "
+            "generating tokens, and billing them, after the stop"
+        )
+
+    def test_it_stops_well_short_of_the_full_run(self, monkeypatch):
+        produced = {"n": 0}
+
+        def counting_stream(**_kwargs):
+            for i in range(400):
+                produced["n"] += 1
+                yield ("element", {"id": f"e{i}", "type": "rectangle"})
+                time.sleep(0.01)
+            yield ("done", {"model": "stub"})
+
+        monkeypatch.setattr(scene_stream, "stream_model", counting_stream)
+        run_id = scene_stream.start(model="stub", user_prompt="x")
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if len(scene_stream.take(run_id, 0)["all"]) >= 2:
+                break
+            time.sleep(0.005)
+        scene_stream.cancel(run_id)
+        _wait_done(run_id)
+        assert produced["n"] < 400, "the stream ran to completion despite the stop"
+
+    def test_what_was_drawn_is_kept(self, monkeypatch):
+        # A stop is not an undo: the shapes so far are usually the reason for
+        # stopping.
+        monkeypatch.setattr(scene_stream, "stream_model", _stub_stream(EL, delay=0.05))
+        run_id = scene_stream.start(model="stub", user_prompt="x")
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if scene_stream.take(run_id, 0)["all"]:
+                break
+            time.sleep(0.005)
+        scene_stream.cancel(run_id)
+        state = _wait_done(run_id)
+        assert state["all"], "the stop threw away the drawing"
+        assert state["cancelled"] is True
+        assert state["error"] is None, "a deliberate stop is not an error"
+
+    def test_cancelling_an_unknown_run_is_false_not_an_exception(self):
+        assert scene_stream.cancel("no-such-run") is False
+
+    def test_cancel_all_stops_every_live_run(self, monkeypatch):
+        def slow_stream(**_kwargs):
+            for i in range(500):
+                yield ("element", {"id": f"e{i}", "type": "rectangle"})
+                time.sleep(0.02)
+            yield ("done", {})
+
+        monkeypatch.setattr(scene_stream, "stream_model", slow_stream)
+        runs = [scene_stream.start(model="stub", user_prompt="x") for _ in range(3)]
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if all(scene_stream.take(r, 0)["all"] for r in runs):
+                break
+            time.sleep(0.01)
+
+        assert scene_stream.cancel_all() == 3
+        for run_id in runs:
+            assert _wait_done(run_id)["cancelled"] is True
+
+    def test_cancel_all_ignores_runs_that_already_finished(self, monkeypatch):
+        monkeypatch.setattr(scene_stream, "stream_model", _stub_stream(EL))
+        run_id = scene_stream.start(model="stub", user_prompt="x")
+        _wait_done(run_id)
+        # Counting a finished run would make the panic button report brakes it
+        # did not apply.
+        assert scene_stream.cancel_all() == 0

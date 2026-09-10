@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `IMMEDIATELY`, so the whole drawing is a single undo step rather than one
   per poll. Gemini keeps the one-shot path — its SDK has no streaming call.
 
+- **A Stop button on `/ai-agent`.** Presses the brakes on a generation in
+  flight: it closes the provider stream, so the model stops generating and
+  billing stops at the tokens already produced. Ending the poll alone would
+  have left the run going to its full budget with nobody reading it. The
+  cancel flag lives in the shared store, so it works when the click is
+  handled by a different worker from the one running the generation. What is
+  already drawn stays on the canvas — a stop is not an undo.
+
 #### Changed
 
 - **The AI provider SDKs are now installed on deployed commits, which makes
@@ -50,6 +58,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lane live is the wrong place to discover what changed in them.
 
 #### Fixed
+
+- **Streamed elements were not normalised, so long scenes stopped growing.**
+  Observed on `/ai-agent` with `gpt-6-astra`: past roughly 150 elements the
+  canvas appeared to delete one shape for every new one. `updateScene`
+  reconciles by element id, so an element carrying an id the scene already
+  holds REPLACES it — a model that repeats ids therefore caps the scene at
+  the number of distinct ids it emits, with no error anywhere. Streamed
+  elements now go through the same `_coerce_types` normalisation the blocking
+  path always used (which also fills in `version`, `versionNonce`, `seed` and
+  `isDeleted`), and a repeated id is renamed rather than allowed to overwrite.
+
+- **`/ai-agent`'s status line priced every run from the Claude table**, so a
+  ChatGPT run reported no cost at all — which reads as "this was free".
+
+- **A budget-truncated scene said `stop=max_tokens` and nothing else.** It now
+  says it was truncated and names the budget, since hitting it is the most
+  common reason a drawing comes out shorter than asked for. A truncated
+  ChatGPT stream is also no longer raised as an error: the elements that
+  arrived are real shapes already on the canvas, and presenting a partial
+  success as a failure is wrong.
 
 - **In-flight generations are stored in a shared cache rather than a
   per-process dict.** The production image runs `gunicorn --workers 2`, so a

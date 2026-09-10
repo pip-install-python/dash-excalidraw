@@ -104,3 +104,74 @@ class TestItToleratesRubbish:
     def test_an_empty_feed_is_harmless(self):
         parser = ElementStreamParser()
         assert parser.feed("") == []
+
+
+class TestNormalisingAStreamedElement:
+    """What the blocking path did and the streaming path first did not.
+
+    OBSERVED on /ai-agent while streaming from gpt-6-astra: the canvas
+    plateaued around 150 elements and appeared to delete one shape for every
+    new one. `updateScene` reconciles BY ID — an element whose id already
+    exists REPLACES the existing one — so a model that repeats ids caps the
+    scene at the number of DISTINCT ids it emits, silently, with no error
+    anywhere. Renaming the duplicate is what keeps both shapes.
+    """
+
+    def test_a_repeated_id_is_renamed_so_both_shapes_survive(self):
+        from lib.scene_ai import _normalize_streamed
+
+        seen = set()
+        first = _normalize_streamed({"id": "a", "type": "rectangle"}, seen)
+        second = _normalize_streamed({"id": "a", "type": "ellipse"}, seen)
+        assert first["id"] == "a"
+        assert second["id"] != "a", "the duplicate would have replaced the first"
+        assert second["type"] == "ellipse"
+
+    def test_a_missing_id_gets_one(self):
+        from lib.scene_ai import _normalize_streamed
+
+        got = _normalize_streamed({"type": "rectangle"}, set())
+        assert isinstance(got["id"], str) and got["id"]
+
+    def test_the_fields_excalidraw_needs_are_filled_in(self):
+        # The blocking path got these from `_coerce_types`; streaming skipped
+        # it entirely, so the two paths disagreed about what an element is.
+        from lib.scene_ai import _normalize_streamed
+
+        got = _normalize_streamed({"id": "a", "type": "rectangle"}, set())
+        for field in ("version", "versionNonce", "seed", "isDeleted", "updated"):
+            assert field in got, f"{field} missing — updateScene reconciles on these"
+
+    def test_stringified_numbers_are_coerced(self):
+        from lib.scene_ai import _normalize_streamed
+
+        got = _normalize_streamed(
+            {"id": "a", "type": "rectangle", "x": "10.5", "width": "20"}, set()
+        )
+        assert got["x"] == 10.5 and got["width"] == 20.0
+
+    def test_a_non_dict_is_dropped_rather_than_dispatched(self):
+        from lib.scene_ai import _normalize_streamed
+
+        assert _normalize_streamed(["not", "an", "element"], set()) is None
+
+    def test_distinct_ids_are_left_alone(self):
+        from lib.scene_ai import _normalize_streamed
+
+        seen = set()
+        ids = [
+            _normalize_streamed({"id": f"e{i}", "type": "rectangle"}, seen)["id"]
+            for i in range(50)
+        ]
+        assert ids == [f"e{i}" for i in range(50)]
+
+    def test_a_hundred_repeats_yield_a_hundred_distinct_shapes(self):
+        # The plateau, directly: without renaming this scene is ONE element.
+        from lib.scene_ai import _normalize_streamed
+
+        seen = set()
+        got = [
+            _normalize_streamed({"id": "same", "type": "rectangle"}, seen)
+            for _ in range(100)
+        ]
+        assert len({e["id"] for e in got}) == 100

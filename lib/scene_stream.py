@@ -110,6 +110,7 @@ def start(**call_kwargs: Any) -> str:
         {
             "count": 0,
             "done": False,
+            "cancelled": False,
             "error": None,
             "meta": None,
             "started": time.time(),
@@ -121,8 +122,12 @@ def start(**call_kwargs: Any) -> str:
         error = None
         final_meta = None
         count = 0
+        stopped = False
+        # Held in a name rather than iterated inline, so `close()` below is a
+        # deliberate act and not left to the garbage collector.
+        stream = stream_model(**call_kwargs)
         try:
-            for kind, payload in stream_model(**call_kwargs):
+            for kind, payload in stream:
                 if kind == "element":
                     c.set(_el_key(run_id, count), payload, expire=RUN_TTL)
                     count += 1
@@ -130,19 +135,36 @@ def start(**call_kwargs: Any) -> str:
                     final_meta = payload
                 # The element is written BEFORE the count that reveals it, so
                 # a poll can never see a count it cannot read an element for.
-                _touch(run_id, count=count, meta=final_meta)
+                state = _touch(run_id, count=count, meta=final_meta)
+                if state is None or state.get("cancelled"):
+                    # None means the run was forgotten while in flight, which
+                    # is a stop by another name. Either way: stop pulling
+                    # tokens. Checked between elements rather than on a timer
+                    # because that is where control returns to us.
+                    stopped = True
+                    break
         except Exception as exc:  # noqa: BLE001 - any provider error, verbatim
             # Verbatim because the page shows it: a truncated-budget message
             # or a refusal is the useful answer, not "generation failed".
             error = f"{type(exc).__name__}: {exc}"
         finally:
-            _touch(run_id, count=count, meta=final_meta, error=error, done=True)
+            # THIS is what stops the bill. Closing the generator raises
+            # GeneratorExit at its suspended `yield`, which unwinds the
+            # `with client.messages.stream(...)` block and closes the HTTP
+            # response. The provider stops generating; billing stops at the
+            # tokens already produced. Merely ending the poll would leave the
+            # model running to its full budget with nobody reading it.
+            stream.close()
+            _touch(
+                run_id, count=count, meta=final_meta, error=error, done=True,
+                cancelled=stopped,
+            )
 
     threading.Thread(target=worker, name=f"scene-{run_id[:8]}", daemon=True).start()
     return run_id
 
 
-def _touch(run_id: str, **fields: Any) -> None:
+def _touch(run_id: str, **fields: Any) -> dict | None:
     """Merge fields into a run's metadata, refreshing its TTL.
 
     Under diskcache's own transaction so two threads in one process cannot
@@ -157,13 +179,16 @@ def _touch(run_id: str, **fields: Any) -> None:
         if current is None:
             # Expired mid-run, or someone called forget(). Do not resurrect
             # it: a run nobody is watching should stay gone.
-            return
+            return None
         # A plain update, and the caller decides what to send: mid-stream it
         # passes only `count` and `meta`, so `error` and `done` keep whatever
         # they held. Filtering by truthiness here would silently refuse to
         # write count=0 or done=False.
         current.update(fields)
         c.set(key, current, expire=RUN_TTL)
+        # Returned so the caller can read `cancelled` without a second round
+        # trip — the worker checks it after every element.
+        return current
 
 
 def take(run_id: str, cursor: int) -> dict:
@@ -185,6 +210,7 @@ def take(run_id: str, cursor: int) -> dict:
             "all": [],
             "cursor": cursor,
             "done": True,
+            "cancelled": False,
             "error": None,
             "meta": None,
             "elapsed": 0.0,
@@ -207,10 +233,49 @@ def take(run_id: str, cursor: int) -> dict:
         "all": everything,
         "cursor": len(everything),
         "done": bool(info.get("done")),
+        "cancelled": bool(info.get("cancelled")),
         "error": info.get("error"),
         "meta": info.get("meta"),
         "elapsed": max(0.0, time.time() - info.get("started", time.time())),
     }
+
+
+def cancel(run_id: str) -> bool:
+    """Ask a run to stop pulling tokens. Returns whether there was one.
+
+    Sets a flag the producer checks after every element; the producer is the
+    only thing that touches the provider, so this is cooperative rather than a
+    kill. In practice that means the stop lands within one element — the gap
+    between two `yield`s — not instantly mid-token.
+
+    IT WORKS ACROSS PROCESSES, which is the whole reason the flag lives in the
+    shared store: with `gunicorn --workers 2` the click that presses the brake
+    is very likely handled by the worker that is NOT running the generation. A
+    threading.Event here would have looked correct in development and stopped
+    nothing in production half the time.
+    """
+    state = _touch(run_id, cancelled=True)
+    return state is not None
+
+
+def cancel_all() -> int:
+    """Stop every run this instance knows about. Returns how many.
+
+    The panic button. `cancel` needs a run id, which is no use when the thing
+    that has gone wrong is "something is spending money and I am not sure
+    what". Iterates the shared store, so it reaches runs started by any worker
+    on this instance — not only this one.
+    """
+    stopped = 0
+    c = cache()
+    for key in list(c):
+        if isinstance(key, str) and key.startswith("run:") and key.endswith(":meta"):
+            info = c.get(key)
+            if info is not None and not info.get("done"):
+                info["cancelled"] = True
+                c.set(key, info, expire=RUN_TTL)
+                stopped += 1
+    return stopped
 
 
 def forget(run_id: str) -> None:
