@@ -38,7 +38,7 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html, no_update
 
 from dash_excalidraw import DashExcalidraw
-from lib import background as _background
+from lib import scene_stream
 from lib.scene_ai import (  # shared with /benchmark — see lib/scene_ai.py
     CLAUDE_EFFORT,
     CLAUDE_MAX_TOKENS,
@@ -378,6 +378,14 @@ component = dmc.Stack(
             title="Status",
         ),
         dcc.Store(id="ai-last-raw", data=""),
+        # The streaming pair. `ai-run` holds the id of the generation in
+        # flight plus how many elements the canvas has already been shown;
+        # `ai-stream-tick` collects whatever arrived since. 400ms is fast
+        # enough that shapes appear to land as they are drawn, and slow
+        # enough that a long generation is a few dozen polls rather than a
+        # few thousand.
+        dcc.Store(id="ai-run", data=None),
+        dcc.Interval(id="ai-stream-tick", interval=400, disabled=True),
         dmc.Tabs(
             value="canvas",
             children=[
@@ -689,6 +697,8 @@ def _clear(_clicks):
     Output("ai-raw", "children"),
     Output("ai-parsed", "children"),
     Output("ai-last-raw", "data"),
+    Output("ai-run", "data"),
+    Output("ai-stream-tick", "disabled"),
     Input("ai-generate-btn", "n_clicks"),
     State("ai-provider", "value"),
     State("ai-model", "value"),
@@ -696,150 +706,242 @@ def _clear(_clicks):
     State("ai-max-tokens", "value"),
     State("ai-prompt", "value"),
     running=[
-        # Flip these on for the duration of the callback, off when it
-        # finishes — gives the user immediate feedback without needing a
-        # second callback round trip.
-        (Output("ai-generate-btn", "loading"), True, False),
-        (Output("ai-generate-btn", "disabled"), True, False),
-        (Output("ai-clear-btn", "disabled"), True, False),
-        (Output("ai-prompt", "disabled"), True, False),
-        (Output("ai-provider", "disabled"), True, False),
-        (Output("ai-model", "disabled"), True, False),
-        (Output("ai-effort", "disabled"), True, False),
-        (Output("ai-max-tokens", "disabled"), True, False),
+        # ONLY the banner. The canvas overlay used to be here and is gone on
+        # purpose: it covered the canvas for the whole call, which is the
+        # exact thing streaming exists to remove. Everything else that needs
+        # locking is handled by `_lock_controls`, which keys off the ticker
+        # and therefore stays on for the whole DRAWING, not just this
+        # callback — which now returns in milliseconds.
         (
             Output("ai-processing-banner", "style"),
             {"display": "block", "marginTop": 4, "marginBottom": 4},
             {"display": "none"},
         ),
-        (Output("ai-canvas-overlay", "visible"), True, False),
     ],
     prevent_initial_call=True,
-    # Runs in a separate process when a manager is configured, so a 100-second
-    # generation does not hold a request worker and take the rest of the site
-    # — /healthz included — down with it. Falls back to a synchronous callback
-    # when no manager is available, so the page still works on a bare install.
-    background=_background.enabled(),
 )
 def _generate(_gen_clicks, provider, model, effort, max_tokens, prompt):
+    """START a generation. Returns immediately; the canvas fills in as it draws.
+
+    This used to block for the whole call and hand back a finished scene, which
+    is why the page had a loading overlay: there was nothing to show until
+    there was everything to show. Claude and ChatGPT runs now go to a worker
+    thread that parses elements out of the token stream as each one closes,
+    and `ai-stream-tick` collects them — first shape on the canvas in a few
+    seconds instead of a minute of spinner.
+
+    `background=` is gone with the blocking call. It existed so a 100-second
+    generation could not hold a request worker and take /healthz down with it;
+    the generation no longer happens in a callback at all, so the risk it
+    guarded against is gone with it. The producer is a plain thread — see
+    lib/scene_stream.start for why not a background worker.
+
+    Gemini still runs synchronously: `_call_gemini` has no streaming path and
+    returns a whole string, so there is nothing to stream. It keeps the old
+    behaviour rather than pretending otherwise.
+    """
+    idle = (no_update,) * 6 + (no_update, True)
     if not prompt or not prompt.strip():
-        return no_update, "Write a prompt first.", "yellow", no_update, no_update, no_update
+        return (no_update, "Write a prompt first.", "yellow") + idle[3:]
 
     # ---- THE SPEND GATE -------------------------------------------------
     # This check has to live HERE, not on the page's `tier: auth`, and the
     # reason is worth stating because the frontmatter looks like it covers it.
     #
-    # Two gaps, both by design upstream:
-    #
-    #  1. `lib/page_tiers.degraded_tier` makes every tier except `hidden`
-    #     fail OPEN when Clerk is not configured. That is the right trade for
-    #     reading documentation — a misconfigured deploy should not hide the
-    #     docs — and exactly the wrong one for a page that spends money, which
-    #     must fail CLOSED.
-    #  2. Page tiers are path-based, and every Dash callback in the app posts
-    #     to the single shared `/_dash-update-component` route. No path-based
-    #     gate can tell this callback from any other, so even a correctly
-    #     configured tier never sees the request that does the spending.
+    #  1. `lib/page_tiers.degraded_tier` makes every tier except `hidden` fail
+    #     OPEN when Clerk is not configured. That is the right trade for
+    #     reading documentation and exactly the wrong one for a page that
+    #     spends money, which must fail CLOSED.
+    #  2. Page tiers are path-based, and every Dash callback posts to the one
+    #     shared `/_dash-update-component` route. No path-based gate can tell
+    #     this callback from any other.
     #
     # So the page tier governs who can READ the page; this governs who can
-    # make it BILL. Anonymous callers get told what to do rather than a bare
-    # denial, because on a public docs site most of them are just curious.
+    # make it BILL.
     if not _spend_allowed():
         return (
             no_update,
             "Sign in to generate — this page spends real API credits, so "
             "generation is limited to signed-in visitors.",
             "yellow",
-            no_update,
-            no_update,
-            no_update,
-        )
+        ) + idle[3:]
 
-    if provider == "claude" and not HAS_CLAUDE_KEY:
-        return (
-            no_update,
-            "ANTHROPIC_API_KEY is not set in the environment.",
-            "red",
-            no_update,
-            no_update,
-            no_update,
-        )
-    if provider == "chatgpt" and not HAS_CHATGPT_KEY:
-        return (
-            no_update,
+    missing = {
+        "claude": (not HAS_CLAUDE_KEY, "ANTHROPIC_API_KEY is not set in the environment."),
+        "chatgpt": (
+            not HAS_CHATGPT_KEY,
             "CHATGPT_API_KEY / OPENAI_API_KEY is not set in the environment.",
-            "red",
-            no_update,
-            no_update,
-            no_update,
-        )
-    if provider == "gemini" and not HAS_GEMINI_KEY:
-        return (
-            no_update,
+        ),
+        "gemini": (
+            not HAS_GEMINI_KEY,
             "GEMINI_API_KEY / GOOGLE_API_KEY is not set in the environment.",
-            "red",
-            no_update,
-            no_update,
-            no_update,
-        )
+        ),
+    }.get(provider, (False, ""))
+    if missing[0]:
+        return (no_update, missing[1], "red") + idle[3:]
 
-    started = time.monotonic()
+    # ---- Gemini: no stream available, so keep the one-shot path ------------
+    if provider == "gemini":
+        started = time.monotonic()
+        try:
+            raw = _call_gemini(model, prompt.strip())
+        except Exception as exc:  # noqa: BLE001 - surface any provider error
+            traceback.print_exc()
+            return (no_update, f"{provider} call failed: {exc}", "red",
+                    str(exc), "", "", no_update, True)
+        try:
+            parsed = _parse_and_normalize(raw)
+        except json.JSONDecodeError as exc:
+            return (
+                no_update,
+                f"Parse error at char {exc.pos}: {exc.msg}. See Parsed tab for context.",
+                "red", raw, _format_parse_error(raw, exc), raw, no_update, True,
+            )
+        except ValueError as exc:
+            return (no_update, f"Parse error: {exc}", "red", raw, str(exc), raw,
+                    no_update, True)
+
+        elements = parsed.get("elements", [])
+        cmd = {
+            "id": f"ai-{uuid.uuid4()}",
+            "type": "updateScene",
+            "payload": {
+                "elements": elements,
+                "appState": parsed.get("appState", {}),
+                "files": parsed.get("files", {}),
+            },
+        }
+        status = _benchmark_status(
+            provider, model, len(elements), time.monotonic() - started, None
+        )
+        return (cmd, status, "green", raw, json.dumps(parsed, indent=2), raw,
+                no_update, True)
+
+    # ---- Claude / ChatGPT: stream it --------------------------------------
     try:
-        if provider == "gemini":
-            # Its own signature: no budget, no effort, no meta to report.
-            raw, meta = _call_gemini(model, prompt.strip()), None
-        else:
-            # One call for Claude and ChatGPT alike — `call_model` dispatches
-            # on the model id, so adding a provider does not add a branch.
-            raw, meta = call_model(model, prompt.strip(), max_tokens, effort)
-    except Exception as exc:  # noqa: BLE001 - surface any provider error
+        run_id = scene_stream.start(
+            model=model,
+            user_prompt=prompt.strip(),
+            max_tokens=max_tokens,
+            effort=effort,
+        )
+    except Exception as exc:  # noqa: BLE001 - a bad model id, a missing key
         traceback.print_exc()
+        return (no_update, f"{type(exc).__name__}: {exc}", "red") + idle[3:]
+
+    # Blank the canvas so the drawing starts from nothing and each shape's
+    # arrival is visible, rather than accumulating over the previous scene.
+    return (
+        {"id": f"ai-reset-{run_id[:8]}", "type": "resetScene", "payload": {}},
+        "Drawing…",
+        "gray",
+        no_update,
+        no_update,
+        no_update,
+        {"id": run_id, "cursor": 0, "provider": provider, "model": model},
+        False,
+    )
+
+
+@callback(
+    Output("ai-canvas", "command", allow_duplicate=True),
+    Output("ai-status", "children", allow_duplicate=True),
+    Output("ai-status", "color", allow_duplicate=True),
+    Output("ai-raw", "children", allow_duplicate=True),
+    Output("ai-parsed", "children", allow_duplicate=True),
+    Output("ai-last-raw", "data", allow_duplicate=True),
+    Output("ai-run", "data", allow_duplicate=True),
+    Output("ai-stream-tick", "disabled", allow_duplicate=True),
+    Input("ai-stream-tick", "n_intervals"),
+    State("ai-run", "data"),
+    prevent_initial_call=True,
+)
+def _stream_tick(_n, run):
+    """Collect whatever the worker has parsed since the last poll."""
+    stop = (no_update,) * 7 + (True,)
+    if not run or not run.get("id"):
+        return stop
+
+    state = scene_stream.take(run["id"], run.get("cursor", 0))
+    if not state["found"]:
+        # Expired, forgotten, or an instance restart took the store with it.
+        # Stop polling rather than ask forever about a run that cannot answer.
+        return stop
+
+    elements = state["all"]
+    run_next = {**run, "cursor": state["cursor"]}
+
+    if state["error"]:
+        scene_stream.forget(run["id"])
+        return (no_update, state["error"], "red", no_update, no_update,
+                no_update, None, True)
+
+    # updateScene REPLACES the scene, so every tick sends everything so far.
+    # captureUpdate NEVER while drawing: without it each tick becomes its own
+    # undo step, and a 40-element scene would take 40 Ctrl+Z to undo.
+    cmd = no_update
+    if state["elements"]:
+        cmd = {
+            "id": f"ai-tick-{run['id'][:8]}-{state['cursor']}",
+            "type": "updateScene",
+            "payload": {"elements": elements, "captureUpdate": "NEVER"},
+        }
+
+    if not state["done"]:
+        plural = "s" if len(elements) != 1 else ""
         return (
-            no_update,
-            f"{provider} call failed: {exc}",
-            "red",
-            str(exc),
-            "",
-            "",
+            cmd,
+            f"Drawing… {len(elements)} element{plural} so far "
+            f"({state['elapsed']:.0f}s)",
+            "gray",
+            no_update, no_update, no_update, run_next, False,
         )
 
-    try:
-        parsed = _parse_and_normalize(raw)
-    except json.JSONDecodeError as exc:
+    scene_stream.forget(run["id"])
+    if not elements:
         return (
             no_update,
-            f"Parse error at char {exc.pos}: {exc.msg}. See Parsed tab for context.",
-            "red",
-            raw,
-            _format_parse_error(raw, exc),
-            raw,
-        )
-    except ValueError as exc:
-        return (
-            no_update,
-            f"Parse error: {exc}",
-            "red",
-            raw,
-            str(exc),
-            raw,
+            "The model returned no elements. Try a different model or a "
+            "larger budget.",
+            "yellow",
+            no_update, no_update, no_update, None, True,
         )
 
-    pretty_raw = raw
-    pretty_parsed = json.dumps(parsed, indent=2)
-    element_count = len(parsed.get("elements", []))
-    cmd = {
-        "id": f"ai-{uuid.uuid4()}",
+    # One last updateScene, this time as a single undoable step.
+    final_cmd = {
+        "id": f"ai-final-{run['id'][:8]}",
         "type": "updateScene",
-        "payload": {
-            "elements": parsed.get("elements", []),
-            "appState": parsed.get("appState", {}),
-            "files": parsed.get("files", {}),
-        },
+        "payload": {"elements": elements, "captureUpdate": "IMMEDIATELY"},
     }
-    # Elapsed time is in the status on purpose. Generation on a thinking
-    # model can legitimately take a minute or more, and a bare spinner gives
-    # the reader no way to tell a slow run from a broken one — which is
-    # exactly how a 473-second run got reported as a hang.
-    elapsed = time.monotonic() - started
-    status = _benchmark_status(provider, model, element_count, elapsed, meta)
-    return cmd, status, "green", pretty_raw, pretty_parsed, raw
+    # The Raw tab shows the scene REBUILT from the streamed elements rather
+    # than the exact bytes off the wire: the parser consumes the deltas as
+    # they arrive, and keeping a second full copy of every response in memory
+    # to populate a tab is not worth the memory.
+    rebuilt = json.dumps({"elements": elements}, indent=2)
+    status = _benchmark_status(
+        run.get("provider"), run.get("model"), len(elements),
+        state["elapsed"], state["meta"],
+    )
+    return final_cmd, status, "green", rebuilt, rebuilt, rebuilt, None, True
+
+
+@callback(
+    Output("ai-generate-btn", "loading"),
+    Output("ai-generate-btn", "disabled"),
+    Output("ai-clear-btn", "disabled"),
+    Output("ai-prompt", "disabled"),
+    Output("ai-provider", "disabled"),
+    Output("ai-model", "disabled"),
+    Output("ai-max-tokens", "disabled"),
+    Input("ai-stream-tick", "disabled"),
+)
+def _lock_controls(tick_disabled):
+    """Lock the controls while a drawing is in flight.
+
+    Keyed on the TICKER, not on the generate callback's lifetime: that
+    callback now returns in milliseconds, so a `running=` lock would release
+    while the canvas was still filling in. The ticker being enabled is the
+    definition of "a run is in progress".
+    """
+    drawing = not tick_disabled
+    return (drawing,) * 7

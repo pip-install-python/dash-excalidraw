@@ -395,6 +395,118 @@ COMPARABLE_MODELS = [
 ]
 
 
+class ElementStreamParser:
+    """Pulls whole elements out of a scene JSON that is still being written.
+
+    The model emits one big object; the canvas wants to show shapes as they
+    arrive. So rather than waiting for the closing brace and rendering 40
+    elements at once, this scans the `"elements"` array and hands back each
+    object the moment ITS braces balance.
+
+    Why hand-rolled rather than an incremental JSON library: the useful unit
+    here is "one complete element", not "one complete token" — and the parse
+    has to tolerate a document that will not be valid JSON until the very last
+    chunk. `json.loads` on each candidate element is still doing the real
+    parsing; this only finds the boundaries.
+
+    The two things that make brace-counting wrong if you skip them are strings
+    containing braces (`"text": "if (x) {y}"`) and escaped quotes inside them.
+    Both are handled below, and both are in the tests.
+    """
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._in_elements = False
+        self._depth = 0
+        self._start = -1
+        self._in_string = False
+        self._escaped = False
+        self._done = False
+        # Where the scan reached last time. This has to persist: the string
+        # and depth state carries across feeds, so restarting at 0 each call
+        # would re-count every brace already seen — which silently produces
+        # zero elements when the chunks are small (one character per feed
+        # being the worst case, and exactly how a token stream arrives).
+        self._pos = 0
+
+    def feed(self, chunk: str) -> list[dict]:
+        """Add text; return every element that became complete because of it."""
+        if self._done or not chunk:
+            return []
+        self._buf += chunk
+        out: list[dict] = []
+
+        if not self._in_elements:
+            # Find the array opening. Anything before it (the envelope's other
+            # keys) is not our business.
+            marker = self._buf.find('"elements"')
+            if marker == -1:
+                return []
+            bracket = self._buf.find("[", marker)
+            if bracket == -1:
+                return []
+            self._in_elements = True
+            self._buf = self._buf[bracket + 1 :]
+            self._pos = 0
+
+        i = self._pos
+        while i < len(self._buf):
+            ch = self._buf[i]
+
+            if self._in_string:
+                if self._escaped:
+                    self._escaped = False
+                elif ch == "\\":
+                    self._escaped = True
+                elif ch == '"':
+                    self._in_string = False
+                i += 1
+                continue
+
+            if ch == '"':
+                self._in_string = True
+            elif ch == "{":
+                if self._depth == 0:
+                    self._start = i
+                self._depth += 1
+            elif ch == "}":
+                self._depth -= 1
+                if self._depth == 0 and self._start >= 0:
+                    candidate = self._buf[self._start : i + 1]
+                    try:
+                        element = json.loads(candidate)
+                    except ValueError:
+                        # Not an element after all; drop it rather than stall
+                        # the stream on one malformed object.
+                        element = None
+                    if isinstance(element, dict):
+                        out.append(element)
+                    # Consume what we just emitted and restart the scan.
+                    self._buf = self._buf[i + 1 :]
+                    self._start = -1
+                    i = 0
+                    self._pos = 0
+                    continue
+            elif ch == "]" and self._depth == 0:
+                # End of the elements array — everything after is the
+                # envelope's tail and no more elements are coming.
+                self._done = True
+                self._pos = i
+                break
+
+            i += 1
+
+        else:
+            # Loop ran to the end without breaking: remember where to resume.
+            self._pos = i
+
+        return out
+
+    @property
+    def finished(self) -> bool:
+        return self._done
+
+
 def _extract_json_block(text: str) -> str:
     """Pull a single JSON object out of arbitrary AI output.
 
@@ -965,6 +1077,144 @@ def call_model(
     raise ValueError(
         f"{model} cannot be run as a comparison cell — it has no budget/effort "
         "controls or no published price. See COMPARABLE_MODELS."
+    )
+
+
+def _delta_text(event) -> str:
+    """Text out of one streaming event, whichever provider produced it.
+
+    Written defensively rather than against an exact event-type string: both
+    SDKs emit a dozen event kinds and only some carry text, the names differ
+    between them, and a missed rename would show up as a canvas that never
+    updates rather than as an error. Anything with a string `.delta` (OpenAI)
+    or a `.delta.text` (Anthropic) is text; everything else is skipped.
+    """
+    delta = getattr(event, "delta", None)
+    if isinstance(delta, str):
+        return delta
+    text = getattr(delta, "text", None)
+    return text if isinstance(text, str) else ""
+
+
+def stream_model(
+    model: str,
+    user_prompt: str,
+    max_tokens: int | None = None,
+    effort: str | None = None,
+):
+    """Yield `("element", dict)` as each element completes, then `("done", meta)`.
+
+    This is the difference between a spinner and watching it draw. The call
+    already streamed — `_call_claude` has always used `messages.stream()` to
+    dodge the non-streaming HTTP deadline — but it threw the intermediate
+    text away and parsed once at the end. Here the deltas go through
+    ElementStreamParser instead, so a shape reaches the canvas as soon as its
+    closing brace arrives rather than when the last one does.
+
+    Errors are raised, not yielded: a caller that is mid-draw needs to stop,
+    and the pages already surface an exception as a status line.
+    """
+    provider = PROVIDER_OF.get(model)
+    parser = ElementStreamParser()
+
+    if provider == "claude":
+        import anthropic
+
+        client = anthropic.Anthropic()
+        budget = coerce_budget(max_tokens, CLAUDE_MAX_TOKENS.get(model, 32000))
+        requested = effort if effort is not None else (MODEL_EFFORT.get(model) or "none")
+        applied = resolve_effort(model, requested)
+        kwargs = {"output_config": {"effort": applied}} if applied else {}
+
+        with client.messages.stream(
+            model=model,
+            max_tokens=budget,
+            system=[
+                {
+                    "type": "text",
+                    "text": SYSTEM_PROMPT,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": user_prompt}],
+            **kwargs,
+        ) as stream:
+            for event in stream:
+                for element in parser.feed(_delta_text(event)):
+                    yield ("element", element)
+            final = stream.get_final_message()
+
+        stop = getattr(final, "stop_reason", None)
+        if stop == "refusal":
+            details = getattr(final, "stop_details", None)
+            category = getattr(details, "category", None) if details else None
+            raise ValueError(
+                "Claude's safety classifiers declined this request"
+                + (f" (category: {category})" if category else "")
+                + ". Nothing was generated."
+            )
+        usage = getattr(final, "usage", None)
+        meta = {
+            "model": model,
+            "effort": applied or "none",
+            "effort_ignored": bool(
+                requested and requested != "none" and model not in EFFORT_CAPABLE
+            ),
+            "max_tokens": budget,
+            "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+            "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+            "cache_read": getattr(usage, "cache_read_input_tokens", 0) or 0,
+            "stop_reason": stop,
+        }
+        yield ("done", meta)
+        return
+
+    if provider != "chatgpt":
+        raise ValueError(f"{model} cannot be streamed — see COMPARABLE_MODELS.")
+
+    from openai import OpenAI
+
+    key = os.environ.get("CHATGPT_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("No ChatGPT key. Set CHATGPT_API_KEY in .env.")
+    client = OpenAI(api_key=key)
+    budget = coerce_budget(max_tokens, OPENAI_MAX_TOKENS.get(model, 24000))
+    requested = effort if effort is not None else (MODEL_EFFORT.get(model) or "none")
+    applied = resolve_effort(model, requested)
+    kwargs = {"reasoning": {"effort": applied}} if applied else {}
+
+    with client.responses.stream(
+        model=model,
+        instructions=SYSTEM_PROMPT,
+        input=user_prompt,
+        max_output_tokens=budget,
+        **kwargs,
+    ) as stream:
+        for event in stream:
+            for element in parser.feed(_delta_text(event)):
+                yield ("element", element)
+        final = stream.get_final_response()
+
+    status = getattr(final, "status", None)
+    if status == "incomplete":
+        reason = getattr(getattr(final, "incomplete_details", None), "reason", None)
+        raise ValueError(
+            f"Truncated: hit the {budget:,}-token budget mid-response ({reason}). "
+            f"This budget covers reasoning AND output — raise it or lower effort."
+        )
+    usage = getattr(final, "usage", None)
+    yield (
+        "done",
+        {
+            "model": model,
+            "effort": applied or "none",
+            "effort_ignored": False,
+            "max_tokens": budget,
+            "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+            "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+            "cache_read": 0,
+            "stop_reason": status,
+        },
     )
 
 

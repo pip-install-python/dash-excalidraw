@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   control and has no published price in this app, so a cell for it could show
   a drawing but never an honest cost. It stays available on `/ai-agent`.
 
+- **`/ai-agent` draws the scene as it arrives instead of showing a loading
+  overlay.** Claude and ChatGPT runs stream: elements are parsed out of the
+  token stream as each one's braces close and dispatched to the canvas by a
+  400ms poll, so the first shape lands in a few seconds rather than after the
+  whole generation. The status line counts elements and elapsed seconds while
+  it draws. Intermediate updates use `captureUpdate: NEVER` and the final one
+  `IMMEDIATELY`, so the whole drawing is a single undo step rather than one
+  per poll. Gemini keeps the one-shot path — its SDK has no streaming call.
+
 #### Changed
 
 - **The AI provider SDKs are now installed on deployed commits, which makes
@@ -41,6 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lane live is the wrong place to discover what changed in them.
 
 #### Fixed
+
+- **In-flight generations are stored in a shared cache rather than a
+  per-process dict.** The production image runs `gunicorn --workers 2`, so a
+  poll balanced to the worker that is not running the generation would have
+  found no such run and reported that it vanished — roughly half of them, at
+  random, with nothing in any log. Impossible to reproduce locally, where
+  `python run.py` is a single process. The buffer is now backed by diskcache
+  (already a dependency), and a test spawns a second interpreter to prove a
+  separate process can read a run.
 
 - `_call_claude` carried two consecutive docstrings, so `help()` showed only
   the first and the streaming rationale was invisible. Merged. Pre-existing;

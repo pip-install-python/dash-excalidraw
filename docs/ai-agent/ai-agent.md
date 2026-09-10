@@ -21,6 +21,13 @@ Claude, ChatGPT or Gemini — write a prompt, hit generate; the result is
 dispatched to the canvas via `command: updateScene` (no component remount).
 Run the same prompt twice with different providers to compare output.
 
+Claude and ChatGPT runs **stream**: elements appear on the canvas as the
+model closes each one, so you watch the scene being drawn rather than waiting
+on a spinner and receiving it all at once. The status line counts shapes and
+seconds as they land. Gemini has no streaming path in its SDK, so it still
+returns the whole scene at the end — the page keeps that behaviour rather than
+faking progress it cannot see.
+
 Each provider is enabled only when its key is present, and the badges above
 the controls say which name was looked for. The cost line under the button
 prices the run **before** you click it: a typical figure and a ceiling, because
