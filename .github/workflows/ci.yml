@@ -127,20 +127,42 @@ jobs:
       - name: webpack compiles
         run: npm run build:js
 
-      # Whether that rebuild reproduces the committed bundle byte for byte.
-      # WARNING, not red, deliberately: byte-identity is measured locally on
-      # node v26.7.0 and CI runs node 20, so an identical result here is
-      # unproven. Promote to a failure in the release AFTER 1.0.0, once one
-      # run's annotation has said identical — turning it red today would mean
-      # a red check nobody can act on, which teaches people to ignore it (the
-      # same reasoning pip-audit carries below).
+      # Whether that rebuild reproduces the committed bundle.
+      #
+      # PATH-AWARE, and it has to be. Excalidraw resolves two of its own
+      # chunks from `import.meta.url` at BUILD time, so the bundle bakes in
+      # the absolute path of whatever tree built it:
+      #   file:///<tree>/node_modules/@excalidraw/excalidraw/dist/prod/chunk-*.js
+      #   file:///<tree>/node_modules/@excalidraw/excalidraw/dist/prod/subset-worker.chunk.js
+      # A GitHub checkout lives at /home/runner/work/..., so a naive byte
+      # comparison would warn on EVERY run and "identical" could never be
+      # observed — a check that always fires teaches people to ignore it.
+      # Normalising that one prefix on both sides, a rebuild from a different
+      # directory is byte-identical (measured: 160 bytes of difference, all of
+      # it those two strings).
+      #
+      # The baked path itself is NOT fixed here. It is pre-existing — both
+      # strings are in dbb86d5's bundle — and removing it means teaching
+      # webpack to emit the vendor's worker chunks under a URL Dash can serve,
+      # which is R6's job, after the tag. See webpack.config.js on publicPath.
+      #
+      # WARNING, not red, this release: identity on CI's node 20 is still
+      # unmeasured (locally it is node v26.7.0). Promote to a failure in the
+      # release after 1.0.0, once one run's annotation has said identical.
       - name: Committed bundle matches the rebuild
         run: |
-          if git diff --quiet -- dash_excalidraw/dash_excalidraw.js; then
-            echo "::notice::bundle byte-identical to the committed one"
+          BUNDLE=dash_excalidraw/dash_excalidraw.js
+          norm() {
+            sed -E 's#file:///[^"]*/node_modules/#file:///ROOT/node_modules/#g' "$1"
+          }
+          git show "HEAD:$BUNDLE" > /tmp/bundle-committed.js
+          norm /tmp/bundle-committed.js > /tmp/bundle-a.js
+          norm "$BUNDLE"              > /tmp/bundle-b.js
+          if cmp -s /tmp/bundle-a.js /tmp/bundle-b.js; then
+            echo "::notice::bundle identical to the committed one (build-path prefix normalised)"
           else
-            echo "::warning::rebuilt bundle differs from the committed one"
-            git diff --stat -- dash_excalidraw/dash_excalidraw.js
+            echo "::warning::rebuilt bundle differs from the committed one beyond the build path"
+            git diff --stat -- "$BUNDLE"
           fi
 
       - name: jest — command dispatcher, export correlation, composed menu

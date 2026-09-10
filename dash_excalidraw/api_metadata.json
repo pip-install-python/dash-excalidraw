@@ -48,6 +48,20 @@
     },
     {
      "default": "",
+     "description": "Visible label for the `docsLinkUrl` item. Re-point the URL and you\nshould relabel: a menu entry that names one destination and opens\nanother is the failure this pair exists to avoid.\n@,default,\"dash-excalidraw docs\"",
+     "name": "docsLinkLabel",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
+     "description": "URL for the wrapper's own documentation item in the main menu.\nRendered as its own group, independently of `hideExcalidrawLinks`.\nSet to `\"\"` or `None` to render no item at all.\n@,default,\"https://excalidraw.2plot.dev\"",
+     "name": "docsLinkUrl",
+     "required": false,
+     "type": "string"
+    },
+    {
+     "default": "",
      "description": "Current Excalidraw element array. Written via setProps on every\nscene change \u2014 read-only from Python callbacks.",
      "name": "elements",
      "required": false,
@@ -90,7 +104,7 @@
     },
     {
      "default": "",
-     "description": "When `true` (default), injects CSS that hides Excalidraw's built-in\n\"Excalidraw links\" menu group (GitHub / Discord / Twitter). Set to\n`false` if you actually want those links visible to users.",
+     "description": "When `true` (default), the vendor's \"Excalidraw links\" group (GitHub /\nFollow us / Discord) is not rendered. Set `false` to show it.\n\nThis is a render condition on THIS canvas's menu, so it works in both\ndirections and each canvas on a page decides for itself.\n@,default,true",
      "name": "hideExcalidrawLinks",
      "required": false,
      "type": "bool"
@@ -273,5 +287,5 @@
    ]
   }
  ],
- "generated": "2026-08-30"
+ "generated": "2026-09-09"
 }

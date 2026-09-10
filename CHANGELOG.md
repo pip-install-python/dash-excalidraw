@@ -14,6 +14,24 @@ Ground-up TypeScript rebuild of the component, and the documentation site
 that ships with it. See `REBUILD.md` for the rebuild's design and
 `/migration` for what changes for a 0.0.x user.
 
+#### Known
+
+- **Excalidraw's font-subsetting worker runs on the main thread, and an SVG
+  export of text logs one console error.** The worker's URL is resolved from
+  `import.meta.url` at build time, so the bundle carries a `file://` path of
+  the machine that built it. A browser refuses it — `new Worker(…)` from the
+  page raises `SecurityError: Script at 'file:///…/subset-worker.chunk.js'
+  cannot be accessed from origin 'https://…'` — and Excalidraw catches that
+  and falls back, logging `Failed to use workers for subsetting, falling back
+  to the main thread.` once.
+
+  **Exports are correct**; only the console is noisy and the subsetting is
+  slower than it would be off-thread. Measured on the deployed site, not
+  inferred from the source. Pre-existing since the first build of this
+  rebuild, not new in 1.0.0. The fix is to have webpack emit those chunks
+  under a URL Dash can serve, and it belongs in the next release rather than
+  in a change made under a tag.
+
 ### Site — internal traffic is dropped from the read table too (2026-09-01)
 
 Consumes `sync/SYNC-1.6.43.md` items 1–3 at template 2b1edd5. Item 1 first,
