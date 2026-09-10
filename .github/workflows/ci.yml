@@ -67,9 +67,10 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
-    # 15, not 10: this job now also runs `npm ci` for the jest harness, and a
-    # cold npm cache is minutes on its own.
-    timeout-minutes: 15
+    # 20, not 10: this job now runs `npm ci`, a webpack compile and the jest
+    # harness on top of the Python linters. A cold npm cache is minutes on its
+    # own and webpack is ~25s.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -112,7 +113,37 @@ jobs:
           cache: npm
       - name: Install the JS toolchain
         run: npm ci
-      - name: jest — command dispatcher and export correlation
+
+      # The compile nothing else runs. `npm run build` was BROKEN from d9d615a
+      # to b977d62 and no job noticed, because the wheel job runs
+      # check_release + `python -m build` and release.yml runs the smoke test —
+      # the committed bundle is a tracked artifact CI never rebuilt. So the one
+      # file a consumer actually executes was the one thing the matrix never
+      # compiled.
+      #
+      # `build:js`, not `build`: the second half (`build:backends`) shells out
+      # to dash-generate-components, which needs dash installed, and this job
+      # has only flake8. The half that broke is webpack's.
+      - name: webpack compiles
+        run: npm run build:js
+
+      # Whether that rebuild reproduces the committed bundle byte for byte.
+      # WARNING, not red, deliberately: byte-identity is measured locally on
+      # node v26.7.0 and CI runs node 20, so an identical result here is
+      # unproven. Promote to a failure in the release AFTER 1.0.0, once one
+      # run's annotation has said identical — turning it red today would mean
+      # a red check nobody can act on, which teaches people to ignore it (the
+      # same reasoning pip-audit carries below).
+      - name: Committed bundle matches the rebuild
+        run: |
+          if git diff --quiet -- dash_excalidraw/dash_excalidraw.js; then
+            echo "::notice::bundle byte-identical to the committed one"
+          else
+            echo "::warning::rebuilt bundle differs from the committed one"
+            git diff --stat -- dash_excalidraw/dash_excalidraw.js
+          fi
+
+      - name: jest — command dispatcher, export correlation, composed menu
         run: npm test
 
   test:
