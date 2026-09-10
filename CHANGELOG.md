@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.0.0] — unreleased
+
+Ground-up TypeScript rebuild of the component, and the documentation site
+that ships with it. See `REBUILD.md` for the rebuild's design and
+`/migration` for what changes for a 0.0.x user.
+
 ### Site — internal traffic is dropped from the read table too (2026-09-01)
 
 Consumes `sync/SYNC-1.6.43.md` items 1–3 at template 2b1edd5. Item 1 first,
@@ -769,7 +777,3 @@ matrix marker.
   `GOOGLE_API_KEY` fallback, read out of `pages/ai_agent.py` rather than out of
   `.env`. Nothing in the showcase requires a key; every AI provider degrades to
   a disabled state when its key is absent.
-
-## [1.0.0] — unreleased
-
-Ground-up TypeScript rebuild of the component. See `REBUILD.md`.
