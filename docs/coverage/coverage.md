@@ -54,7 +54,9 @@ correlation.
 | `width` | `"100%"` | CSS width of the container | Yes |
 | `detectScroll` | `True` | Canvas handles wheel events | Yes |
 | `handleKeyboardGlobally` | `True` | Key handling on `document`, not the canvas | Yes |
-| `hideExcalidrawLinks` | `True` | Hides the GitHub/Discord/X menu group | **One-way — see below** |
+| `hideExcalidrawLinks` | `True` | Hides the vendor's links group | Yes |
+| `docsLinkUrl` | `"https://excalidraw.2plot.dev"` | Our own menu item's URL; `""` renders none | Yes |
+| `docsLinkLabel` | `"dash-excalidraw docs"` | That item's visible label | Yes |
 | `autoFocus` | `True` | Focus the canvas on mount | Mount only |
 | `libraryReturnUrl` | *(unset)* | Where the Browse Library trip returns to | Mount only, in effect |
 | `appState` | — | Full serializable app state | Read-only |
@@ -69,22 +71,51 @@ them from Python does nothing; the readout on the right is what they are for.
 `sceneVersion` is a single integer and far cheaper to compare than diffing
 `elements`, which is the reason it exists.
 
-### How the links switch behaves with more than one canvas
+### The main menu is composed here, not by Excalidraw
 
-`hideExcalidrawLinks` works in both directions — switch it off and the links
-come back, without a reload.
+The wrapper renders its own `MainMenu` rather than letting Excalidraw render
+the default one. It mirrors the vendor's `DefaultMainMenu` item for item and
+in the same order — Load scene, Save to file, Export, Save as image, Find,
+Help, Reset canvas, then the links, then Theme and Canvas background.
 
-It is worth knowing how, because the mechanism shows through when a page has
-more than one canvas. It is a single stylesheet shared by every canvas, and it
-is reference counted: installed for the first canvas that asks for it, removed
-only when the LAST canvas that wanted it stops. So one canvas turning the
-links back on cannot unhide them under its neighbours — you will see the
-switch flip with nothing changing, and that is correct. Unmounting counts as
-letting go, so a canvas that disappears no longer leaves the stylesheet behind.
+It does that because there is no other supported way to control the links
+group: the vendor's `Socials` item is composed at a single site inside
+Excalidraw and no `UIOptions` key reaches it. Two consequences worth knowing:
 
-This used to be one-way: the sheet went in and never came out, and nothing in
-the API said so. R5 fixed it; the page you are reading described the old
-behaviour until then.
+- **Each canvas decides for itself.** `hideExcalidrawLinks` is a render
+  condition on this canvas's own menu, so it works in both directions and two
+  canvases on one page can disagree. It was one-way until R5 — a shared
+  stylesheet that went in and never came out — and this page said so.
+- **Two switches are ours to keep in step.** Most default items decide their
+  own visibility, but `Export` and `Save as image` are gated by Excalidraw
+  where the menu is composed. Composing our own means replicating exactly
+  those two, so `UIOptions.canvasActions.export` and `.saveAsImage` still
+  work. A test in the JS harness reads the vendor's own composition and fails
+  if a version bump changes the item set, rather than letting our copy quietly
+  become a copy of an older menu.
+
+| State | Vendor links group | Our docs item |
+|:------|:-------------------|:--------------|
+| Default | hidden | shown |
+| `hideExcalidrawLinks=False` | shown | shown |
+| `docsLinkUrl=""` | hidden | none |
+
+`docsLinkLabel` exists so that re-pointing the URL does not leave a menu entry
+naming one destination and opening another. If you send `docsLinkUrl` to your
+own site, relabel it.
+
+### What still points at Excalidraw
+
+Being honest about the residue: the menu is not the only place the vendor
+links out, and the rest is deliberately left alone.
+
+- **The Help dialog** links to `docs.excalidraw.com`, `plus.excalidraw.com/blog`,
+  the Excalidraw GitHub issues tracker and their YouTube channel.
+- **Two error dialogs** link to the vendor's FAQ and to "open an issue".
+
+That is Excalidraw's manual for Excalidraw's canvas, and a wrapper that
+rewrote it would be sending people to the wrong project for help with the
+thing that is actually failing. Out of scope on purpose.
 
 ### Live demo
 

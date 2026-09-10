@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
     CaptureUpdateAction,
     Excalidraw,
+    MainMenu,
     exportToBlob,
     exportToCanvas,
     exportToSvg,
@@ -83,63 +84,6 @@ type CommandShape = {
 let warnedCommitToHistory = false;
 let warnedBadCaptureUpdate = false;
 
-/* -------------------------------------------------------------------------
- *  The "hide the vendor links" stylesheet, REFERENCE-COUNTED.
- *
- *  One stylesheet serves every canvas on the page, which is why the first
- *  implementation never removed it: dropping it for one component would
- *  unhide the links under all the others. The cost was that
- *  `hideExcalidrawLinks` was one-way — turning it off did nothing until a
- *  reload, and nothing in the API said so.
- *
- *  Counting fixes both halves. The sheet is installed on the first canvas
- *  that wants it and removed only when the LAST one stops wanting it, so a
- *  single canvas toggles freely while a page full of them still cannot pull
- *  the sheet out from under its neighbours. Unmounting releases too — before
- *  this, a canvas could leave the sheet behind after it was gone.
- *
- *  `x.com/excalidraw` is in the selector because Excalidraw 0.18 renders it:
- *  grepping the shipped bundle finds `x.com/excalidraw` and no
- *  `twitter.com/excalidraw` at all. The old selector named only the retired
- *  host, so it matched that anchor never. It survived because the group is
- *  matched by its GitHub link too — but only while all three sit in ONE
- *  group, which is the vendor's layout decision, not ours. The retired host
- *  is kept alongside so a 0.17 canvas is still covered.
- * ------------------------------------------------------------------------- */
-const HIDE_LINKS_STYLE_ID = 'dash-excalidraw-hide-links';
-const HIDE_LINKS_CSS = `
-    /* Hide the "Excalidraw links" menu group (GitHub / Discord / X). */
-    .dropdown-menu-group:has(a[href*="github.com/excalidraw/excalidraw"]),
-    .dropdown-menu-group:has(a[href*="discord.gg/UexuTaE"]),
-    .dropdown-menu-group:has(a[href*="x.com/excalidraw"]),
-    .dropdown-menu-group:has(a[href*="twitter.com/excalidraw"]) {
-        display: none !important;
-    }
-`;
-let hideLinksRefCount = 0;
-
-function acquireHideLinksStyle(): void {
-    if (typeof document === 'undefined') return;
-    hideLinksRefCount += 1;
-    if (document.getElementById(HIDE_LINKS_STYLE_ID)) return;
-    const el = document.createElement('style');
-    el.id = HIDE_LINKS_STYLE_ID;
-    el.textContent = HIDE_LINKS_CSS;
-    document.head.appendChild(el);
-}
-
-function releaseHideLinksStyle(): void {
-    if (typeof document === 'undefined') return;
-    hideLinksRefCount = Math.max(0, hideLinksRefCount - 1);
-    if (hideLinksRefCount > 0) return;
-    const el = document.getElementById(HIDE_LINKS_STYLE_ID);
-    if (el && el.parentNode) el.parentNode.removeChild(el);
-}
-
-/** Test seam: the live count, so a harness can assert the bookkeeping. */
-export function __hideLinksRefCount(): number {
-    return hideLinksRefCount;
-}
 
 type Props = {
     // ---- sizing ---------------------------------------------------------
@@ -252,17 +196,30 @@ type Props = {
     interceptLinkOpens?: boolean;
 
     /**
-     * When `true` (default), hides Excalidraw's built-in "Excalidraw links"
-     * menu group (GitHub / Discord / X). Set to `false` to show them again.
+     * When `true` (default), the vendor's "Excalidraw links" group (GitHub /
+     * Follow us / Discord) is not rendered. Set `false` to show it.
      *
-     * Works in both directions within a page load. It is implemented as one
-     * stylesheet shared by every canvas on the page, reference counted, so a
-     * canvas turning it off cannot unhide the links under its neighbours —
-     * the sheet is removed when the LAST canvas that wanted it stops wanting
-     * it, and unmounting counts as stopping.
+     * This is a render condition on THIS canvas's menu, so it works in both
+     * directions and each canvas on a page decides for itself.
      * @default true
      */
     hideExcalidrawLinks?: boolean;
+
+    /**
+     * URL for the wrapper's own documentation item in the main menu.
+     * Rendered as its own group, independently of `hideExcalidrawLinks`.
+     * Set to `""` or `None` to render no item at all.
+     * @default "https://excalidraw.2plot.dev"
+     */
+    docsLinkUrl?: string;
+
+    /**
+     * Visible label for the `docsLinkUrl` item. Re-point the URL and you
+     * should relabel: a menu entry that names one destination and opens
+     * another is the failure this pair exists to avoid.
+     * @default "dash-excalidraw docs"
+     */
+    docsLinkLabel?: string;
 
     // ---- editor config --------------------------------------------------
     /**
@@ -846,6 +803,8 @@ const DashExcalidraw = (props: Props) => {
         scrollThrottleMs = 100,
         interceptLinkOpens = false,
         hideExcalidrawLinks = true,
+        docsLinkUrl = 'https://excalidraw.2plot.dev',
+        docsLinkLabel = 'dash-excalidraw docs',
     } = props;
 
     const [isMounted, setIsMounted] = useState(false);
@@ -861,16 +820,6 @@ const DashExcalidraw = (props: Props) => {
     useEffect(() => {
         setIsMounted(true);
     }, []);
-
-    // The shared "hide the vendor links" stylesheet, acquired while this
-    // canvas wants it and released when it stops — on a prop flip OR on
-    // unmount. Reference counted at module scope, so the sheet survives as
-    // long as ANY canvas on the page still wants it. See the counter above.
-    useEffect(() => {
-        if (!hideExcalidrawLinks) return undefined;
-        acquireHideLinksStyle();
-        return releaseHideLinksStyle;
-    }, [hideExcalidrawLinks]);
 
     const writeProps = useCallback(
         (patch: Record<string, any>) => {
@@ -918,6 +867,20 @@ const DashExcalidraw = (props: Props) => {
                 : {}),
         };
     }, [UIOptions]);
+
+    /* --------- the two menu gates the vendor applies at the call site ----
+     * Most default menu items decide for themselves and return null when
+     * their action is off. `Export` and `SaveAsImage` do not: the vendor
+     * gates them where it composes the menu, so composing our own means
+     * replicating exactly these two — otherwise /ui-options' `export` and
+     * `saveAsImage` switches would go quiet without anything failing.
+     * `undefined` means "not set", which is Excalidraw's own default of on;
+     * only an explicit `false` hides the item. `export` may have been
+     * normalised to `{saveFileToDisk: true}` above, which is still on.
+     */
+    const showExportItem = resolvedUIOptions?.canvasActions?.export !== false;
+    const showSaveAsImageItem =
+        resolvedUIOptions?.canvasActions?.saveAsImage !== false;
 
     /* --------- onChange: elements / appState / files / serialized / ver --- */
     const handleChange = useCallback(
@@ -1552,7 +1515,68 @@ const DashExcalidraw = (props: Props) => {
                 onPaste={handlePaste as any}
                 onLibraryChange={handleLibraryChange as any}
                 onLinkOpen={handleLinkOpen as any}
-            />
+            >
+                {/*
+                 * OUR OWN MAIN MENU, mirroring the vendor's `DefaultMainMenu`
+                 * verbatim — same items, same order, same gates. See
+                 * node_modules/@excalidraw/excalidraw/dist/dev/index.js,
+                 * `var DefaultMainMenu` (0.18.1: lines 21056-21071, in
+                 * components/LayerUI.tsx).
+                 *
+                 * Supplying MainMenu children REPLACES the vendor's default,
+                 * which is the only supported way to control the links group:
+                 * `Socials` is a DefaultItems entry composed at that one site,
+                 * and no UIOptions key reaches it. The alternative considered
+                 * and rejected was rewriting the rendered anchors' hrefs — the
+                 * group is three links labelled GitHub, Follow us and Discord,
+                 * so re-pointing them at one destination ships a menu entry
+                 * that names one place and opens another.
+                 *
+                 * The cost of owning the menu is the two gates the vendor
+                 * applies HERE rather than inside the item: Export and
+                 * SaveAsImage. The other five default items return null on
+                 * their own; SearchMenu and Help have no gate. Keep this list
+                 * in step with the vendor — the drift test in
+                 * DashExcalidraw.test.tsx reads that block and fails if the
+                 * set of default items changes under a version bump.
+                 */}
+                <MainMenu>
+                    <MainMenu.DefaultItems.LoadScene />
+                    <MainMenu.DefaultItems.SaveToActiveFile />
+                    {showExportItem && <MainMenu.DefaultItems.Export />}
+                    {showSaveAsImageItem && <MainMenu.DefaultItems.SaveAsImage />}
+                    <MainMenu.DefaultItems.SearchMenu />
+                    <MainMenu.DefaultItems.Help />
+                    <MainMenu.DefaultItems.ClearCanvas />
+                    <MainMenu.Separator />
+                    {!hideExcalidrawLinks && (
+                        <MainMenu.Group title="Excalidraw links">
+                            <MainMenu.DefaultItems.Socials />
+                        </MainMenu.Group>
+                    )}
+                    {Boolean(docsLinkUrl) && (
+                        <MainMenu.Group>
+                            <MainMenu.ItemLink
+                                href={docsLinkUrl as string}
+                                rel="noopener noreferrer"
+                            >
+                                {docsLinkLabel}
+                            </MainMenu.ItemLink>
+                        </MainMenu.Group>
+                    )}
+                    {/*
+                     * The vendor brackets its links group with a Separator on
+                     * each side. When BOTH groups are absent the trailing one
+                     * would sit against the leading one, so it is dropped —
+                     * one break, never two, in all three states.
+                     */}
+                    {(!hideExcalidrawLinks || Boolean(docsLinkUrl)) && (
+                        <MainMenu.Separator />
+                    )}
+                    <MainMenu.DefaultItems.ToggleTheme />
+                    <MainMenu.DefaultItems.ChangeCanvasBackground />
+                </MainMenu>
+            </Excalidraw>
         </div>
     );
 };

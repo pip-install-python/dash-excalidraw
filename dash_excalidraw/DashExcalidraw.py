@@ -107,6 +107,18 @@ Keyword arguments:
     Whether Excalidraw listens to wheel-scroll events on the canvas.
     @,default,True.
 
+- docsLinkLabel (string; optional):
+    Visible label for the `docsLinkUrl` item. Re-point the URL and you
+    should relabel: a menu entry that names one destination and opens
+    another is the failure this pair exists to avoid.
+    @,default,\"dash-excalidraw docs\".
+
+- docsLinkUrl (string; optional):
+    URL for the wrapper's own documentation item in the main menu.
+    Rendered as its own group, independently of `hideExcalidrawLinks`.
+    Set to `\"\"` or `None` to render no item at all.
+    @,default,\"https://excalidraw.2plot.dev\".
+
 - elements (list of dicts with strings as keys and values of type boolean | number | string | dict | list; optional):
     Current Excalidraw element array. Written via setProps on every
     scene change — read-only from Python callbacks.
@@ -137,14 +149,11 @@ Keyword arguments:
     @,default,\"600px\".
 
 - hideExcalidrawLinks (boolean; optional):
-    When `True` (default), hides Excalidraw's built-in \"Excalidraw
-    links\" menu group (GitHub / Discord / X). Set to `False` to show
-    them again.  Works in both directions within a page load. It is
-    implemented as one stylesheet shared by every canvas on the page,
-    reference counted, so a canvas turning it off cannot unhide the
-    links under its neighbours — the sheet is removed when the LAST
-    canvas that wanted it stops wanting it, and unmounting counts as
-    stopping. @,default,True.
+    When `True` (default), the vendor's \"Excalidraw links\" group
+    (GitHub / Follow us / Discord) is not rendered. Set `False` to
+    show it.  This is a render condition on THIS canvas's menu, so it
+    works in both directions and each canvas on a page decides for
+    itself. @,default,True.
 
 - initialData (dict; optional):
     Initial scene contents passed to Excalidraw on mount. Shape:
@@ -298,6 +307,8 @@ Keyword arguments:
         lastExternalDrop: typing.Optional[typing.Optional[typing.Dict[str, typing.Any]]] = None,
         interceptLinkOpens: typing.Optional[bool] = None,
         hideExcalidrawLinks: typing.Optional[bool] = None,
+        docsLinkUrl: typing.Optional[str] = None,
+        docsLinkLabel: typing.Optional[str] = None,
         viewModeEnabled: typing.Optional[bool] = None,
         zenModeEnabled: typing.Optional[bool] = None,
         gridModeEnabled: typing.Optional[bool] = None,
@@ -325,9 +336,9 @@ Keyword arguments:
         id: typing.Optional[typing.Union[str, dict]] = None,
         **kwargs
     ):
-        self._prop_names = ['id', 'UIOptions', 'appState', 'autoFocus', 'command', 'detectScroll', 'elements', 'externalizedSerializedData', 'files', 'gridModeEnabled', 'handleKeyboardGlobally', 'height', 'hideExcalidrawLinks', 'initialData', 'interceptLinkOpens', 'isCollaborating', 'langCode', 'lastExport', 'lastExternalDrop', 'lastFileAdded', 'lastLibraryChange', 'lastLinkOpen', 'lastPaste', 'lastPointerDown', 'lastPointerMove', 'lastPointerUp', 'lastScrollChange', 'libraryReturnUrl', 'name', 'pointerMoveThrottleMs', 'sceneVersion', 'scrollThrottleMs', 'serializedData', 'theme', 'validateEmbeddable', 'viewModeEnabled', 'width', 'zenModeEnabled']
+        self._prop_names = ['id', 'UIOptions', 'appState', 'autoFocus', 'command', 'detectScroll', 'docsLinkLabel', 'docsLinkUrl', 'elements', 'externalizedSerializedData', 'files', 'gridModeEnabled', 'handleKeyboardGlobally', 'height', 'hideExcalidrawLinks', 'initialData', 'interceptLinkOpens', 'isCollaborating', 'langCode', 'lastExport', 'lastExternalDrop', 'lastFileAdded', 'lastLibraryChange', 'lastLinkOpen', 'lastPaste', 'lastPointerDown', 'lastPointerMove', 'lastPointerUp', 'lastScrollChange', 'libraryReturnUrl', 'name', 'pointerMoveThrottleMs', 'sceneVersion', 'scrollThrottleMs', 'serializedData', 'theme', 'validateEmbeddable', 'viewModeEnabled', 'width', 'zenModeEnabled']
         self._valid_wildcard_attributes =            []
-        self.available_properties = ['id', 'UIOptions', 'appState', 'autoFocus', 'command', 'detectScroll', 'elements', 'externalizedSerializedData', 'files', 'gridModeEnabled', 'handleKeyboardGlobally', 'height', 'hideExcalidrawLinks', 'initialData', 'interceptLinkOpens', 'isCollaborating', 'langCode', 'lastExport', 'lastExternalDrop', 'lastFileAdded', 'lastLibraryChange', 'lastLinkOpen', 'lastPaste', 'lastPointerDown', 'lastPointerMove', 'lastPointerUp', 'lastScrollChange', 'libraryReturnUrl', 'name', 'pointerMoveThrottleMs', 'sceneVersion', 'scrollThrottleMs', 'serializedData', 'theme', 'validateEmbeddable', 'viewModeEnabled', 'width', 'zenModeEnabled']
+        self.available_properties = ['id', 'UIOptions', 'appState', 'autoFocus', 'command', 'detectScroll', 'docsLinkLabel', 'docsLinkUrl', 'elements', 'externalizedSerializedData', 'files', 'gridModeEnabled', 'handleKeyboardGlobally', 'height', 'hideExcalidrawLinks', 'initialData', 'interceptLinkOpens', 'isCollaborating', 'langCode', 'lastExport', 'lastExternalDrop', 'lastFileAdded', 'lastLibraryChange', 'lastLinkOpen', 'lastPaste', 'lastPointerDown', 'lastPointerMove', 'lastPointerUp', 'lastScrollChange', 'libraryReturnUrl', 'name', 'pointerMoveThrottleMs', 'sceneVersion', 'scrollThrottleMs', 'serializedData', 'theme', 'validateEmbeddable', 'viewModeEnabled', 'width', 'zenModeEnabled']
         self.available_wildcard_properties =            []
         _explicit_args = kwargs.pop('_explicit_args')
         _locals = locals()

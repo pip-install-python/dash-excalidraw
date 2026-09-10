@@ -7,6 +7,8 @@ from dash_excalidraw import DashExcalidraw
 from docs._shared import canvas_frame, code_block, sync_canvas_theme
 
 sync_canvas_theme("ui-options-canvas")
+sync_canvas_theme("ui-links-vendor-canvas")
+sync_canvas_theme("ui-links-none-canvas")
 
 CODE = """
 DashExcalidraw(
@@ -95,6 +97,53 @@ component = dmc.Stack(
                     "tools": {"image": True},
                 },
             )
+        ),
+        dmc.Divider(
+            my="lg",
+            label="The other two link states — open the hamburger menu on each",
+            labelPosition="center",
+        ),
+        dmc.SimpleGrid(
+            cols={"base": 1, "md": 2},
+            spacing="md",
+            children=[
+                dmc.Stack(
+                    gap="xs",
+                    children=[
+                        dmc.Text(
+                            "hideExcalidrawLinks=False — both groups",
+                            size="sm",
+                            fw=600,
+                        ),
+                        canvas_frame(
+                            DashExcalidraw(
+                                id="ui-links-vendor-canvas",
+                                height="360px",
+                                hideExcalidrawLinks=False,
+                            ),
+                            min_height=360,
+                        ),
+                    ],
+                ),
+                dmc.Stack(
+                    gap="xs",
+                    children=[
+                        dmc.Text(
+                            'docsLinkUrl="" — neither group',
+                            size="sm",
+                            fw=600,
+                        ),
+                        canvas_frame(
+                            DashExcalidraw(
+                                id="ui-links-none-canvas",
+                                height="360px",
+                                docsLinkUrl="",
+                            ),
+                            min_height=360,
+                        ),
+                    ],
+                ),
+            ],
         ),
     ],
 )

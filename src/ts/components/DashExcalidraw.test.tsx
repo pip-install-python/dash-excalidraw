@@ -20,10 +20,12 @@
 import React from 'react';
 import {act, render, waitFor} from '@testing-library/react';
 
-import DashExcalidraw, {__hideLinksRefCount} from './DashExcalidraw';
+import DashExcalidraw from './DashExcalidraw';
 import {
     __apiRequested,
     __deliverApi,
+    __menuLog,
+    __renderedDefaultItems,
     __reset,
     exportToBlob,
     exportToSvg,
@@ -279,95 +281,140 @@ describe('export correlation', () => {
 });
 
 /**
- * `hideExcalidrawLinks` must work in BOTH directions.
+ * The composed main menu.
  *
- * It used to be one-way: the effect returned early on `!hideExcalidrawLinks`
- * and the cleanup deliberately kept the stylesheet, so turning the prop off
- * did nothing until a reload — and nothing in the API said so. The sharing
- * that motivated it is real (one sheet serves every canvas on the page), so
- * the fix is reference counting rather than removal: the LAST canvas that
- * wants it off is the one that takes it away.
+ * The wrapper renders its own `MainMenu` instead of letting Excalidraw render
+ * its default, because that is the only supported way to control the vendor's
+ * links group: `Socials` is a DefaultItems entry composed at a single site in
+ * LayerUI.tsx, and no UIOptions key reaches it.
+ *
+ * Owning the menu means owning two risks, and both are pinned here: the gates
+ * the vendor applies at the call site rather than inside the item (Export,
+ * SaveAsImage), and drift — a vendor bump that changes the default item set
+ * while our copy stays as it was.
  */
-describe('hideExcalidrawLinks is symmetric', () => {
-    const styleEl = () => document.getElementById('dash-excalidraw-hide-links');
+describe('the composed main menu', () => {
+    const mountMenu = async (props: Record<string, any> = {}) => {
+        const setProps = jest.fn();
+        render(<DashExcalidraw id="c" setProps={setProps} {...props} />);
+        await flush();
+        return setProps;
+    };
 
-    beforeEach(() => {
-        expect(__hideLinksRefCount()).toBe(0);
-        expect(styleEl()).toBeNull();
+    const kinds = () => __menuLog().map((e) => e.kind);
+
+    test('by default: the vendor links are gone and our docs link is there', async () => {
+        await mountMenu();
+
+        expect(kinds()).not.toContain('Socials');
+
+        const links = __menuLog().filter((e) => e.kind === 'ItemLink');
+        expect(links).toHaveLength(1);
+        expect(links[0].href).toBe('https://excalidraw.2plot.dev');
+        expect(links[0].label).toBe('dash-excalidraw docs');
+        // A link that opens a new context must not hand over window.opener.
+        expect(links[0].rel).toBe('noopener noreferrer');
     });
 
-    test('on installs the stylesheet, off removes it again', async () => {
-        const setProps = jest.fn();
-        const {rerender} = render(
-            <DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks />,
-        );
-        await flush();
-        expect(styleEl()).not.toBeNull();
-        expect(__hideLinksRefCount()).toBe(1);
+    test('hideExcalidrawLinks=false renders the vendor group as the vendor does', async () => {
+        await mountMenu({hideExcalidrawLinks: false});
 
-        rerender(
-            <DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks={false} />,
-        );
-        await flush();
-        expect(styleEl()).toBeNull();
-        expect(__hideLinksRefCount()).toBe(0);
-
-        // …and back on again, within the same page load.
-        rerender(<DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks />);
-        await flush();
-        expect(styleEl()).not.toBeNull();
+        expect(kinds()).toContain('Socials');
+        const group = __menuLog().find((e) => e.kind === 'Group' && e.title);
+        expect(group?.title).toBe('Excalidraw links');
+        // Ours is still there, independently.
+        expect(__menuLog().filter((e) => e.kind === 'ItemLink')).toHaveLength(1);
     });
 
-    test('the LAST canvas to turn it off is the one that removes it', async () => {
-        const setProps = jest.fn();
-        const Two = ({a, b}: {a: boolean; b: boolean}) => (
-            <>
-                <DashExcalidraw id="a" setProps={setProps} hideExcalidrawLinks={a} />
-                <DashExcalidraw id="b" setProps={setProps} hideExcalidrawLinks={b} />
-            </>
-        );
+    test('an empty docs URL renders no item of ours', async () => {
+        await mountMenu({docsLinkUrl: ''});
 
-        const {rerender} = render(<Two a b />);
-        await flush();
-        expect(__hideLinksRefCount()).toBe(2);
-        expect(styleEl()).not.toBeNull();
-
-        // One canvas opts out — the other still wants the links hidden.
-        rerender(<Two a={false} b />);
-        await flush();
-        expect(__hideLinksRefCount()).toBe(1);
-        expect(styleEl()).not.toBeNull();
-
-        // Now the last one does.
-        rerender(<Two a={false} b={false} />);
-        await flush();
-        expect(__hideLinksRefCount()).toBe(0);
-        expect(styleEl()).toBeNull();
+        expect(__menuLog().filter((e) => e.kind === 'ItemLink')).toHaveLength(0);
+        expect(kinds()).not.toContain('Socials');
     });
 
-    test('unmounting releases the stylesheet too', async () => {
-        const setProps = jest.fn();
-        const {unmount} = render(
-            <DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks />,
-        );
-        await flush();
-        expect(styleEl()).not.toBeNull();
+    test('a re-pointed URL carries its own label', async () => {
+        await mountMenu({
+            docsLinkUrl: 'https://example.invalid/guide',
+            docsLinkLabel: 'Our guide',
+        });
 
-        unmount();
-        expect(__hideLinksRefCount()).toBe(0);
-        expect(styleEl()).toBeNull();
+        const link = __menuLog().find((e) => e.kind === 'ItemLink');
+        expect(link?.href).toBe('https://example.invalid/guide');
+        expect(link?.label).toBe('Our guide');
     });
 
-    test('the selector names the host Excalidraw 0.18 actually renders', async () => {
-        const setProps = jest.fn();
-        render(<DashExcalidraw id="c" setProps={setProps} hideExcalidrawLinks />);
-        await flush();
-        const css = styleEl()!.textContent || '';
-        // 0.18 ships x.com/excalidraw; the shipped bundle contains no
-        // twitter.com/excalidraw at all, so a selector naming only the retired
-        // host matched that anchor never.
-        expect(css).toContain('x.com/excalidraw');
-        expect(css).toContain('github.com/excalidraw/excalidraw');
-        expect(css).toContain('discord.gg/UexuTaE');
+    test('no doubled separator in any of the three states', async () => {
+        const count = () => kinds().filter((k) => k === 'Separator').length;
+
+        await mountMenu(); // default: our link only
+        expect(count()).toBe(2);
+
+        __reset();
+        await mountMenu({hideExcalidrawLinks: false}); // both groups
+        expect(count()).toBe(2);
+
+        __reset();
+        await mountMenu({hideExcalidrawLinks: true, docsLinkUrl: ''}); // neither
+        expect(count()).toBe(1);
+
+        // And never two in a row, whatever the state.
+        const seq = kinds();
+        expect(seq.some((k, i) => k === 'Separator' && seq[i + 1] === 'Separator')).toBe(
+            false,
+        );
+    });
+
+    describe('the two gates the vendor applies at the call site', () => {
+        test('canvasActions.export=false drops Export', async () => {
+            await mountMenu({UIOptions: {canvasActions: {export: false}}});
+            expect(__renderedDefaultItems()).not.toContain('Export');
+            expect(__renderedDefaultItems()).toContain('SaveAsImage');
+        });
+
+        test('canvasActions.saveAsImage=false drops SaveAsImage', async () => {
+            await mountMenu({UIOptions: {canvasActions: {saveAsImage: false}}});
+            expect(__renderedDefaultItems()).not.toContain('SaveAsImage');
+            expect(__renderedDefaultItems()).toContain('Export');
+        });
+
+        test('unset means on, which is the vendor default', async () => {
+            await mountMenu({UIOptions: {canvasActions: {}}});
+            expect(__renderedDefaultItems()).toContain('Export');
+            expect(__renderedDefaultItems()).toContain('SaveAsImage');
+        });
+    });
+
+    test('DRIFT: our item set still matches the vendor DefaultMainMenu', async () => {
+        // Read the vendor's own composition rather than trusting a comment.
+        // A version bump that adds or removes a default menu item fails HERE,
+        // instead of silently leaving our menu a copy of an older one.
+        const fs = require('fs');
+        const path = require('path');
+        const vendor = fs.readFileSync(
+            path.join(
+                __dirname,
+                '../../../node_modules/@excalidraw/excalidraw/dist/dev/index.js',
+            ),
+            'utf8',
+        );
+
+        const start = vendor.indexOf('var DefaultMainMenu = ');
+        expect(start).toBeGreaterThan(-1);
+        const block = vendor.slice(start, vendor.indexOf('\n};', start));
+        // Non-vacuity: a block that matched nothing would pass every assertion
+        // below by being empty on both sides.
+        expect(block.length).toBeGreaterThan(200);
+
+        const vendorItems = new Set(
+            Array.from(block.matchAll(/DefaultItems\.(\w+)/g), (m) => m[1]),
+        );
+        expect(vendorItems.size).toBeGreaterThan(5);
+
+        await mountMenu(); // default state: no Socials
+        const ours = new Set(__renderedDefaultItems());
+        ours.add('Socials'); // rendered only when the vendor group is shown
+
+        expect([...ours].sort()).toEqual([...vendorItems].sort());
     });
 });

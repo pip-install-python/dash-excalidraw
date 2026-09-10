@@ -32,7 +32,14 @@ export const CaptureUpdateAction = {
 export const Excalidraw = (props: any) => {
     // Capture, do not call. The test decides when the canvas is "ready".
     apiCallback = props.excalidrawAPI || null;
-    return React.createElement('div', {'data-testid': 'excalidraw-canvas'});
+    // Children matter: the wrapper passes its composed <MainMenu> this way,
+    // and a stub that dropped them would report an empty menu for every
+    // state — a test that cannot fail rather than one that passes.
+    return React.createElement(
+        'div',
+        {'data-testid': 'excalidraw-canvas'},
+        props.children,
+    );
 };
 
 /** Build a scene API whose every method is observable. */
@@ -70,6 +77,7 @@ export function __apiRequested(): boolean {
 
 export function __reset() {
     apiCallback = null;
+    menuLog = [];
     exportToSvg.mockReset();
     exportToBlob.mockReset();
     exportToCanvas.mockReset();
@@ -77,4 +85,73 @@ export function __reset() {
     restoreElements.mockImplementation((els: any) => els);
     serializeAsJSON.mockReset();
     serializeAsJSON.mockImplementation(() => '{}');
+}
+
+/* -------------------------------------------------------------------------
+ *  MainMenu, recorded rather than rendered.
+ *
+ *  The component composes its own menu (mirroring the vendor's
+ *  DefaultMainMenu), so the harness needs to see WHAT was composed, in order.
+ *  Each stub logs itself and renders nothing; assertions read the log.
+ * ------------------------------------------------------------------------- */
+type MenuEntry = {kind: string; title?: string; href?: string; label?: any; rel?: string};
+
+let menuLog: MenuEntry[] = [];
+
+const recordItem = (name: string) => {
+    const C: any = () => {
+        menuLog.push({kind: name});
+        return null;
+    };
+    C.displayName = name;
+    return C;
+};
+
+const DEFAULT_ITEM_NAMES = [
+    'LoadScene',
+    'SaveToActiveFile',
+    'SaveAsImage',
+    'CommandPalette',
+    'SearchMenu',
+    'Help',
+    'ClearCanvas',
+    'ToggleTheme',
+    'ChangeCanvasBackground',
+    'Export',
+    'Socials',
+    'LiveCollaborationTrigger',
+];
+
+export const MainMenu: any = ({children}: any) =>
+    React.createElement('div', {'data-testid': 'main-menu'}, children);
+
+MainMenu.DefaultItems = DEFAULT_ITEM_NAMES.reduce((acc: any, name) => {
+    acc[name] = recordItem(name);
+    return acc;
+}, {});
+
+MainMenu.Separator = recordItem('Separator');
+
+MainMenu.Group = ({title, children}: any) => {
+    menuLog.push({kind: 'Group', title});
+    return React.createElement('div', null, children);
+};
+
+MainMenu.ItemLink = ({href, children, rel}: any) => {
+    menuLog.push({kind: 'ItemLink', href, label: children, rel});
+    return null;
+};
+
+/** Everything the menu rendered, in order. */
+export function __menuLog(): MenuEntry[] {
+    return menuLog;
+}
+
+/** Just the vendor DefaultItems names that rendered. */
+export function __renderedDefaultItems(): string[] {
+    return menuLog.filter((e) => DEFAULT_ITEM_NAMES.includes(e.kind)).map((e) => e.kind);
+}
+
+export function __resetMenuLog() {
+    menuLog = [];
 }
