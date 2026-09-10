@@ -19,5 +19,23 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "exclude": ["node_modules", "dash_excalidraw", "dist", "build"]
+  // The jest harness is NOT part of the webpack program. tsconfig has no
+  // `include`, so without these the compiler pulls in every .test.tsx and the
+  // __mocks__ tree, type-checks them against the build's strict-ish settings,
+  // and fails `npm run build` on jest globals and deliberately-loose command
+  // literals. ts-jest compiles the tests separately with its own overrides
+  // (jest.config.js), which is where they belong.
+  //
+  // This broke the build in d9d615a and nothing caught it: no CI job runs
+  // `npm run build`, and `--ignore \.test\.` only tells the Python stub
+  // generator to skip the file — it says nothing to webpack.
+  "exclude": [
+    "node_modules",
+    "dash_excalidraw",
+    "dist",
+    "build",
+    "src/ts/**/*.test.ts",
+    "src/ts/**/*.test.tsx",
+    "src/ts/__mocks__"
+  ]
 }
