@@ -47,6 +47,13 @@ signature with neither control and has no published price in this app, so a
 Gemini cell could show a drawing but never an honest cost or a matched setting.
 It remains available on [AI agent](/ai-agent).
 
+Every cell **streams**: the six drawings appear together, shape by shape, and
+each panel refits itself as its scene grows. A **Stop all** button is enabled
+for as long as a sweep is running — it closes every variant's connection to its
+provider, so generation stops and billing stops at the tokens already produced.
+What has been drawn stays on the canvases; a half-finished sweep is still a
+comparison, and usually the reason for stopping.
+
 Only one axis varies per run, and the page shows only the controls that axis
 reads — the others are hidden rather than left on screen looking live. Two
 moving variables make a comparison unreadable, and a full grid is a

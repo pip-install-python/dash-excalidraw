@@ -19,15 +19,12 @@ THREE THINGS THAT SHAPE THE DESIGN
 
 from __future__ import annotations
 
-import concurrent.futures
-import time
-import uuid
-
 import dash_mantine_components as dmc
-from dash import Input, Output, State, callback, dcc, html, no_update
+from dash import ALL, Input, Output, State, callback, dcc, no_update
 
 from dash_excalidraw import DashExcalidraw
 from docs._shared import canvas_frame
+from lib import scene_stream
 from lib.scene_ai import (
     CLAUDE_EFFORT,
     CLAUDE_MAX_TOKENS,
@@ -36,9 +33,7 @@ from lib.scene_ai import (
     EFFORT_CAPABLE,
     MODEL_LABEL,
     MODEL_PRICING,
-    _parse_and_normalize,
     _spend_allowed,
-    call_model,
     coerce_budget,
     estimate_cost,
     format_money,
@@ -95,84 +90,108 @@ def _variant_label(axis: str, model: str, effort: str, budget: int) -> str:
     return f"effort={effort} · {budget:,} tok"
 
 
-def _panel(result: dict):
-    """One cell: its settings, its numbers, and its drawing."""
-    if result.get("error"):
-        return dmc.GridCol(
-            dmc.Paper(
-                withBorder=True,
-                p="sm",
-                children=dmc.Stack(
-                    gap=4,
-                    children=[
-                        dmc.Badge(result["label"], color="red", variant="light"),
-                        dmc.Text(result["error"], size="xs", c="red"),
-                    ],
-                ),
-            ),
-            span={"base": 12, "md": 6},
-        )
+def _slot(index: int):
+    """One cell's skeleton, built ONCE at import and then filled by callbacks.
 
-    m = result["meta"]
-    cost = (
-        m["input_tokens"] * MODEL_PRICING.get(result["model"], (0, 0))[0]
-        + m["output_tokens"] * MODEL_PRICING.get(result["model"], (0, 0))[1]
-    ) / 1_000_000
-
+    Panels used to be constructed from finished results, which is why the page
+    could only show anything after every variant had returned. They are static
+    now, with pattern-matching ids, so a callback can write into six canvases
+    while the models are still drawing. Unused slots are hidden rather than
+    absent — a component that does not exist cannot be an Output.
+    """
     return dmc.GridCol(
-        dmc.Paper(
+        id={"type": "bm-slot", "index": index},
+        style={"display": "none"},
+        span={"base": 12, "md": 6},
+        children=dmc.Paper(
             withBorder=True,
             p="sm",
             children=dmc.Stack(
                 gap="xs",
                 children=[
-                    dmc.Group(
-                        gap="xs",
-                        children=[
-                            dmc.Badge(result["label"], variant="light"),
-                            dmc.Badge(
-                                f"{result['elements']} elements",
-                                color="violet",
-                                variant="light",
-                            ),
-                            dmc.Badge(
-                                f"{result['seconds']:.0f}s", color="gray", variant="light"
-                            ),
-                            dmc.Badge(
-                                f"~${cost:.3f}", color="teal", variant="light"
-                            ),
-                        ],
-                    ),
-                    dmc.Text(
-                        f"{m['output_tokens']:,} out / {m['input_tokens']:,} in"
-                        + (
-                            f"  ·  stop={m['stop_reason']}"
-                            if m["stop_reason"] != "end_turn"
-                            else ""
-                        ),
-                        size="xs",
-                        c="dimmed",
-                    ),
+                    dmc.Box(id={"type": "bm-head", "index": index}),
                     canvas_frame(
                         DashExcalidraw(
-                            id=result["canvas_id"],
+                            id={"type": "bm-canvas", "index": index},
                             height="340px",
                             # View mode: these are specimens to compare, not
                             # canvases to edit. It also stops a stray click in
                             # one panel from changing what you are comparing.
                             viewModeEnabled=True,
-                            initialData={
-                                "elements": result["elements_data"],
-                                "appState": {"viewBackgroundColor": "#ffffff"},
-                                "scrollToContent": True,
-                            },
                         ),
                         min_height=340,
                     ),
                 ],
             ),
         ),
-        span={"base": 12, "md": 6},
+    )
+
+
+def _cell_cost(model: str, meta: dict | None) -> float:
+    if not meta:
+        return 0.0
+    price = MODEL_PRICING.get(model, (0, 0))
+    return (
+        meta["input_tokens"] * price[0] + meta["output_tokens"] * price[1]
+    ) / 1_000_000
+
+
+def _head(cell: dict, state: dict):
+    """The badges above one cell's canvas, from whatever is known so far."""
+    if state.get("error"):
+        return dmc.Stack(
+            gap=4,
+            children=[
+                dmc.Badge(cell["label"], color="red", variant="light"),
+                dmc.Text(state["error"], size="xs", c="red"),
+            ],
+        )
+
+    drawn = len(state.get("all", []))
+    badges = [dmc.Badge(cell["label"], variant="light")]
+    badges.append(
+        dmc.Badge(
+            f"{drawn} element{'s' if drawn != 1 else ''}",
+            color="violet",
+            variant="light",
+        )
+    )
+    badges.append(
+        dmc.Badge(f"{state.get('elapsed', 0.0):.0f}s", color="gray", variant="light")
+    )
+
+    meta = state.get("meta")
+    if state.get("cancelled"):
+        badges.append(dmc.Badge("stopped", color="orange", variant="filled"))
+    elif not state.get("done"):
+        badges.append(dmc.Badge("drawing…", color="blue", variant="dot"))
+
+    if meta:
+        badges.append(
+            dmc.Badge(
+                f"~${_cell_cost(cell['model'], meta):.3f}",
+                color="teal",
+                variant="light",
+            )
+        )
+
+    detail = ""
+    if meta:
+        detail = f"{meta['output_tokens']:,} out / {meta['input_tokens']:,} in"
+        stop = meta.get("stop_reason")
+        if stop in ("max_tokens", "incomplete"):
+            detail += f"  ·  TRUNCATED at {meta['max_tokens']:,} tokens"
+        elif stop and stop not in ("end_turn", "completed"):
+            detail += f"  ·  stop={stop}"
+    if state.get("lost"):
+        detail += f"  ·  {state['lost']} lost from the buffer"
+
+    return dmc.Stack(
+        gap=4,
+        children=[
+            dmc.Group(gap="xs", children=badges),
+            dmc.Text(detail, size="xs", c="dimmed"),
+        ],
     )
 
 
@@ -321,6 +340,17 @@ component = dmc.Stack(
                                 "Run benchmark",
                                 id="bm-run",
                             ),
+                            # THE BRAKES. This page is the reason they matter
+                            # most: one click is up to six paid calls running
+                            # at once, so a stop here is worth six times what
+                            # it is worth on /ai-agent.
+                            dmc.Button(
+                                "Stop all",
+                                id="bm-stop",
+                                leftSection="■",
+                                color="red",
+                                disabled=True,
+                            ),
                             dmc.Text(id="bm-estimate", size="sm", c="dimmed"),
                         ],
                         justify="space-between",
@@ -334,7 +364,14 @@ component = dmc.Stack(
             color="gray",
             children="Ready.",
         ),
-        dcc.Loading(html.Div(id="bm-results"), type="dot"),
+        # Six fixed slots, hidden until used. Previously this was an empty
+        # Div filled with finished panels, which is why nothing could appear
+        # until everything had.
+        dmc.Grid(gutter="md", children=[_slot(i) for i in range(MAX_VARIANTS)]),
+        # One ticker for the whole sweep, not one per cell: six Intervals
+        # would mean six callbacks a second arguing over the same Store.
+        dcc.Store(id="bm-runs", data=None),
+        dcc.Interval(id="bm-tick", interval=500, disabled=True),
     ],
 )
 
@@ -448,10 +485,18 @@ def _estimate_cost(model, axis, efforts, budgets, models, fixed_budget, fixed_ef
     return head
 
 
+BLANK = {"display": "none"}
+SHOWN: dict = {}
+
+
 @callback(
-    Output("bm-results", "children"),
+    Output("bm-runs", "data"),
+    Output("bm-tick", "disabled"),
     Output("bm-status", "children"),
     Output("bm-status", "color"),
+    Output({"type": "bm-slot", "index": ALL}, "style"),
+    Output({"type": "bm-head", "index": ALL}, "children"),
+    Output({"type": "bm-canvas", "index": ALL}, "command"),
     Input("bm-run", "n_clicks"),
     State("bm-model", "value"),
     State("bm-axis", "value"),
@@ -461,25 +506,33 @@ def _estimate_cost(model, axis, efforts, budgets, models, fixed_budget, fixed_ef
     State("bm-fixed-budget", "value"),
     State("bm-fixed-effort", "value"),
     State("bm-prompt", "value"),
-    running=[
-        (Output("bm-run", "loading"), True, False),
-        (Output("bm-run", "disabled"), True, False),
-    ],
     prevent_initial_call=True,
 )
 def _run(
     _clicks, model, axis, efforts, budgets, models, fixed_budget, fixed_effort, prompt
 ):
+    """START every variant, then return. The cells fill in as they draw.
+
+    This used to block until all six calls had finished and then build the
+    panels from their results, which meant a minute or more of spinner and —
+    more to the point — no way to stop once the money was committed. Each
+    variant is now a streamed run in the shared buffer, so the page can show
+    six drawings appearing at once AND cancel them.
+    """
+    blank = [BLANK] * MAX_VARIANTS
+    nothing = [no_update] * MAX_VARIANTS
+
+    def refuse(message, color="yellow"):
+        return None, True, message, color, blank, nothing, nothing
+
     if not prompt or not prompt.strip():
-        return no_update, "Write a prompt first.", "yellow"
+        return refuse("Write a prompt first.")
 
     # Same gate as /ai-agent, and it matters more here: one click is up to six
     # paid calls. See lib/scene_ai._spend_allowed.
     if not _spend_allowed():
-        return (
-            no_update,
-            "Sign in to run a benchmark — this page spends real API credits.",
-            "yellow",
+        return refuse(
+            "Sign in to run a benchmark — this page spends real API credits."
         )
 
     # Same builder the estimate uses, so the run cannot execute a different
@@ -487,17 +540,15 @@ def _run(
     variants = _variants(
         model, axis, efforts, budgets, models, fixed_budget, fixed_effort
     )
-
     if not variants:
-        return no_update, "Select at least one variant to compare.", "yellow"
+        return refuse("Select at least one variant to compare.")
 
     if axis == "effort" and model not in EFFORT_CAPABLE:
         # Varying effort on a model that rejects the parameter would run N
         # identical calls and present them as a comparison — worse than an
         # error, because the output looks like a result.
         if len({e for _, e, _ in variants}) > 1:
-            return (
-                no_update,
+            return refuse(
                 f"{model} does not accept the effort parameter, so every variant "
                 "would be identical. Switch to varying max tokens, or pick "
                 "another model.",
@@ -507,70 +558,195 @@ def _run(
     # The model axis has its own version of the same trap: one model selected
     # is not a comparison, it is a single call wearing a comparison's UI.
     if axis == "model" and len(variants) < 2:
-        return (
-            no_update,
-            "Pick at least two models to compare — one is just a single run.",
-            "yellow",
-        )
+        return refuse("Pick at least two models to compare — one is just a single run.")
 
-    started = time.monotonic()
-    run_id = uuid.uuid4().hex[:8]
+    cells = []
+    styles = list(blank)
+    heads = list(nothing)
+    commands = list(nothing)
+    failed = []
 
-    def one(index_variant):
-        index, (variant_model, effort, budget) = index_variant
+    for index, (variant_model, effort, budget) in enumerate(variants):
         label = _variant_label(axis, variant_model, effort, budget)
         try:
-            # call_model dispatches on the model id, so a Claude cell and a
-            # ChatGPT cell in the same sweep go through identical code and
-            # come back with identically-shaped meta.
-            raw, meta = call_model(variant_model, prompt.strip(), budget, effort)
-            parsed = _parse_and_normalize(raw)
-            elements = parsed.get("elements", [])
-            return {
-                "label": label,
-                "model": variant_model,
-                "meta": meta,
-                "elements": len(elements),
-                "elements_data": elements,
-                "seconds": 0.0,
-                "canvas_id": f"bm-canvas-{run_id}-{index}",
-            }
-        except Exception as exc:  # one bad variant must not lose the others
-            return {"label": label, "error": f"{type(exc).__name__}: {exc}"}
+            run_id = scene_stream.start(
+                model=variant_model,
+                user_prompt=prompt.strip(),
+                max_tokens=budget,
+                effort=effort,
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad variant, not the sweep
+            # A cell that cannot start must not take the others down with it;
+            # that is the whole reason the sweep is worth running.
+            failed.append(f"{label}: {type(exc).__name__}: {exc}")
+            continue
 
-    # Concurrent on purpose — see the module docstring. Bounded by the variant
-    # count, which MAX_VARIANTS already caps.
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(variants)) as pool:
-        futures = {
-            pool.submit(one, (i, v)): i for i, v in enumerate(variants)
+        cell = {
+            "id": run_id,
+            "label": label,
+            "model": variant_model,
+            "cursor": 0,
+            "done": False,
         }
-        per_start = time.monotonic()
-        for fut in concurrent.futures.as_completed(futures):
-            r = fut.result()
-            r["seconds"] = time.monotonic() - per_start
-            results.append((futures[fut], r))
+        cells.append(cell)
+        styles[index] = SHOWN
+        heads[index] = _head(cell, {"all": [], "elapsed": 0.0, "done": False})
+        # Blank the cell so the drawing starts from nothing rather than
+        # appearing over the previous sweep's scene.
+        commands[index] = {
+            "id": f"bm-reset-{run_id[:8]}",
+            "type": "resetScene",
+            "payload": {},
+        }
 
-    results = [r for _, r in sorted(results, key=lambda x: x[0])]
+    if not cells:
+        return refuse("No variant could be started. " + " · ".join(failed), "red")
 
-    elapsed = time.monotonic() - started
-    ok = [r for r in results if not r.get("error")]
-    # Priced per RESULT's model, not per the page's model select — on the
-    # model axis the cells are different models at different rates, and
-    # pricing them all at one would be wrong by up to 40x.
-    total_cost = sum(
-        (
-            r["meta"]["input_tokens"] * MODEL_PRICING.get(r["model"], (0, 0))[0]
-            + r["meta"]["output_tokens"] * MODEL_PRICING.get(r["model"], (0, 0))[1]
+    status = f"Running {len(cells)} variant{'s' if len(cells) != 1 else ''}…"
+    if failed:
+        status += f" ({len(failed)} could not start: {'; '.join(failed)})"
+    return cells, False, status, "gray", styles, heads, commands
+
+
+@callback(
+    Output("bm-status", "children", allow_duplicate=True),
+    Output("bm-status", "color", allow_duplicate=True),
+    Output("bm-runs", "data", allow_duplicate=True),
+    Output("bm-tick", "disabled", allow_duplicate=True),
+    Output({"type": "bm-head", "index": ALL}, "children", allow_duplicate=True),
+    Output({"type": "bm-canvas", "index": ALL}, "command", allow_duplicate=True),
+    Input("bm-tick", "n_intervals"),
+    State("bm-runs", "data"),
+    prevent_initial_call=True,
+)
+def _tick(_n, cells):
+    """Collect every cell's new elements in ONE poll.
+
+    One ticker for the whole sweep rather than one per cell: six Intervals
+    would be six callbacks a second contending for the same Store, and Dash
+    gives no ordering guarantee between them.
+    """
+    nothing = [no_update] * MAX_VARIANTS
+    if not cells:
+        return no_update, no_update, no_update, True, nothing, nothing
+
+    heads = list(nothing)
+    commands = list(nothing)
+    next_cells = []
+    finished = 0
+    total_cost = 0.0
+    total_elements = 0
+    slowest = 0.0
+
+    for index, cell in enumerate(cells):
+        state = scene_stream.take(cell["id"], cell.get("cursor", 0))
+        if not state["found"]:
+            # Expired, forgotten, or an instance restart took the store. Treat
+            # it as finished rather than polling forever.
+            next_cells.append({**cell, "done": True})
+            finished += 1
+            continue
+
+        heads[index] = _head(cell, state)
+        if state["elements"]:
+            commands[index] = {
+                "id": f"bm-{cell['id'][:8]}-{state['cursor']}",
+                "type": "updateScene",
+                "payload": {
+                    "elements": state["all"],
+                    # NEVER while drawing, or each poll is its own undo step.
+                    "captureUpdate": "NEVER",
+                    # These cells are 340px showing scenes laid out for
+                    # 1200x800. Without refitting you watch a zoomed-in corner
+                    # of a drawing rather than the drawing.
+                    "scrollToContent": True,
+                },
+            }
+
+        total_elements += len(state["all"])
+        slowest = max(slowest, state["elapsed"])
+        if state["done"]:
+            finished += 1
+            total_cost += _cell_cost(cell["model"], state.get("meta"))
+            if not cell.get("done"):
+                # Last poll for this cell: commit it as one undo step, then
+                # drop it from the buffer.
+                commands[index] = {
+                    "id": f"bm-final-{cell['id'][:8]}",
+                    "type": "updateScene",
+                    "payload": {
+                        "elements": state["all"],
+                        "captureUpdate": "IMMEDIATELY",
+                        "scrollToContent": True,
+                    },
+                }
+                scene_stream.forget(cell["id"])
+            next_cells.append({**cell, "cursor": state["cursor"], "done": True})
+        else:
+            next_cells.append({**cell, "cursor": state["cursor"]})
+
+    all_done = finished == len(cells)
+    if not all_done:
+        status = (
+            f"Drawing… {finished}/{len(cells)} variants finished · "
+            f"{total_elements} elements so far ({slowest:.0f}s)"
         )
-        / 1_000_000
-        for r in ok
-    )
-    serial = sum(r["seconds"] for r in ok)
+        return status, "gray", next_cells, False, heads, commands
 
+    cancelled = sum(1 for c in cells if c.get("cancelled"))
     status = (
-        f"{len(ok)}/{len(results)} variants in {elapsed:.0f}s "
-        f"(≈{serial:.0f}s if run one at a time) · ~${total_cost:.3f} total"
+        f"{len(cells)} variant{'s' if len(cells) != 1 else ''} in {slowest:.0f}s "
+        f"(wall clock — they ran together) · {total_elements} elements · "
+        f"~${total_cost:.3f} total"
     )
-    grid = dmc.Grid(gutter="md", children=[_panel(r) for r in results])
-    return grid, status, "green" if len(ok) == len(results) else "yellow"
+    return status, "yellow" if cancelled else "green", next_cells, True, heads, commands
+
+
+@callback(
+    Output("bm-status", "children", allow_duplicate=True),
+    Output("bm-status", "color", allow_duplicate=True),
+    Output("bm-runs", "data", allow_duplicate=True),
+    Output("bm-tick", "disabled", allow_duplicate=True),
+    Input("bm-stop", "n_clicks"),
+    State("bm-runs", "data"),
+    prevent_initial_call=True,
+)
+def _stop(_clicks, cells):
+    """Press the brakes on every variant at once.
+
+    Six calls are six bills, so this cancels them all rather than asking which
+    one. Each `cancel` closes that run's provider stream, so generation stops
+    and billing stops at the tokens already produced — ending the poll alone
+    would leave six models running to their full budgets unobserved.
+
+    What is drawn stays drawn: a half-finished sweep is still a comparison,
+    and it is usually the reason for stopping.
+    """
+    if not cells:
+        return no_update, no_update, no_update, True
+
+    stopped = sum(1 for cell in cells if scene_stream.cancel(cell["id"]))
+    return (
+        f"Stopped {stopped} variant{'s' if stopped != 1 else ''}. What was drawn "
+        f"is kept; no further tokens are being generated.",
+        "yellow",
+        [{**cell, "cancelled": True} for cell in cells],
+        True,
+    )
+
+
+@callback(
+    Output("bm-run", "loading"),
+    Output("bm-run", "disabled"),
+    Output("bm-stop", "disabled"),
+    Output("bm-prompt", "disabled"),
+    Output("bm-axis", "disabled"),
+    Input("bm-tick", "disabled"),
+)
+def _lock_controls(tick_disabled):
+    """Keyed on the ticker, not on `_run`'s lifetime — that now returns in
+    milliseconds, so a `running=` lock would release while six models were
+    still drawing."""
+    sweeping = not tick_disabled
+    # Stop is enabled precisely when the rest are not.
+    return sweeping, sweeping, not sweeping, sweeping, sweeping

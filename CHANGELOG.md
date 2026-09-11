@@ -44,15 +44,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ignores one would trace from the prompt alone and return a confident drawing
   of nothing in particular.
 
+- **`/benchmark` streams every cell, and has a Stop all button.** The six
+  drawings now appear together as they are made, each panel refitting itself
+  as its scene grows, instead of a spinner followed by six finished panels.
+  The button stops every variant at once — one click here is up to six paid
+  calls, so it is worth six times what it is worth on `/ai-agent`.
+
 - **A Stop button on `/ai-agent` and `/trace-image`.** Presses the brakes on a generation in
   flight: it closes the provider stream, so the model stops generating and
   billing stops at the tokens already produced. Ending the poll alone would
   have left the run going to its full budget with nobody reading it. The
   cancel flag lives in the shared store, so it works when the click is
   handled by a different worker from the one running the generation. What is
-  already drawn stays on the canvas — a stop is not an undo. `/benchmark` does
-  not have one yet: its calls are not streamed, so they cannot be interrupted
-  the same way.
+  already drawn stays on the canvas — a stop is not an undo.
 
 #### Changed
 
