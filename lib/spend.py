@@ -35,12 +35,19 @@ budgets. It is not a billing record — provider invoices are authoritative and
 this only counts what this app knows it asked for. And it cannot see spending
 by anything other than this app.
 
-ONE KNOWN HOLE, WRITTEN DOWN RATHER THAN LEFT TO BE FOUND. Gemini has no entry
-in MODEL_PRICING, so a Gemini call cannot be estimated or recorded. It is
-still REFUSED once the ceiling is reached — the check runs without an estimate
-— but it does not COUNT towards the ceiling, so a day of nothing but Gemini
-can exceed the cap without ever tripping it. Pricing those two models closes
-it; until then the gap is here in writing.
+WHERE THE LEDGER LIVES, AND WHAT THAT MEANS IN PRODUCTION. The default path is
+under the system temp directory. On Render that is inside the container: it is
+shared by both gunicorn workers, which is what the ceiling requires, and it is
+RESET ON EVERY DEPLOY — so a redeploy starts the day's budget over. That is a
+deliberate trade and not a bug: the alternative, a ledger that survives
+deploys, needs `AI_SPEND_DIR` pointed at a mounted persistent disk. Whether a
+day should survive a redeploy is the owner's call; this note exists so the
+behaviour is known rather than discovered from a bill.
+
+The test suite must NOT use this default. tests/conftest.py points
+`AI_SPEND_DIR` at a temp directory before anything imports this module,
+because mocked paid calls settle real amounts: four suite runs once spent a
+whole $10 day and turned the fifth red, in tests that never touch a network.
 """
 
 from __future__ import annotations

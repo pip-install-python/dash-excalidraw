@@ -61,7 +61,11 @@ class TestWhenItCannotBeRead:
         # A caller needs to tell "no budget yet" from "no price for this
         # model" — they read very differently to someone about to spend.
         assert estimate_cost("claude-opus-5", "low", "abc")["reason"] == "budget"
-        assert estimate_cost("gemini-2.5-pro", "low", 24000)["reason"] == "model"
+        # Every model this app OFFERS is priced now, Gemini included, so the
+        # "no price" branch needs an id from outside the tables — which is the
+        # real shape of the bug it guards: a model added to a selector and
+        # forgotten in MODEL_PRICING.
+        assert estimate_cost("not-a-real-model", "low", 24000)["reason"] == "model"
 
     def test_the_paid_path_falls_back_to_the_model_default(self):
         # `_call_claude` passes the model's own budget as the default, so an
@@ -132,9 +136,20 @@ class TestTheCrossProviderRegistry:
             assert est["priced"] is True, f"{model} did not price"
             assert est["typical"] > 0, f"{model} priced at zero — reads as free"
 
-    def test_gemini_is_excluded_rather_than_priced_at_zero(self):
-        from lib.scene_ai import COMPARABLE_MODELS, GEMINI_MODELS, call_model
+    def test_gemini_is_priced_but_still_not_comparable(self):
+        # It gained a price so it could COUNT towards the daily ceiling. That
+        # did not make it comparable: /benchmark needs a budget and an effort
+        # control to make a sweep honest, and `_call_gemini` has neither, so a
+        # cell for it would show a drawing at settings nobody chose.
+        from lib.scene_ai import (
+            COMPARABLE_MODELS,
+            GEMINI_MODELS,
+            MODEL_PRICING,
+            call_model,
+        )
 
+        for entry in GEMINI_MODELS:
+            assert entry["value"] in MODEL_PRICING
         comparable = {m["value"] for m in COMPARABLE_MODELS}
         for entry in GEMINI_MODELS:
             assert entry["value"] not in comparable

@@ -366,6 +366,20 @@ GEMINI_MODELS = [
 
 GEMINI_MAX_TOKENS = 64000
 
+# USD per 1M tokens (input, output). Added so Gemini COUNTS towards the daily
+# ceiling rather than merely being refused by it — without a price its calls
+# could not be recorded, so a Gemini-only day could pass the cap without ever
+# tripping it. These are the standard (<=200K-prompt) rates; both models
+# charge more above that threshold, which nothing this app sends approaches.
+#
+# Gemini still does not join COMPARABLE_MODELS: /benchmark needs a budget and
+# an effort control to make a comparison honest, and `_call_gemini` has
+# neither. Being priceable and being comparable are different questions.
+GEMINI_PRICING = {
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-pro": (1.25, 10.00),
+}
+
 
 # ---------------------------------------------------------------------------
 #  One registry across providers
@@ -383,7 +397,7 @@ PROVIDER_OF = {
 MODEL_LABEL = {
     m["value"]: m["label"] for m in CLAUDE_MODELS + OPENAI_MODELS + GEMINI_MODELS
 }
-MODEL_PRICING = {**CLAUDE_PRICING, **OPENAI_PRICING}
+MODEL_PRICING = {**CLAUDE_PRICING, **OPENAI_PRICING, **GEMINI_PRICING}
 MODEL_MAX_TOKENS = {**CLAUDE_MAX_TOKENS, **OPENAI_MAX_TOKENS}
 MODEL_EFFORT = {**CLAUDE_EFFORT, **OPENAI_EFFORT}
 
@@ -1426,14 +1440,10 @@ def _call_gemini(model: str, user_prompt: str) -> str:
             "google-genai is not installed. `pip install google-genai`."
         ) from exc
 
-    # Gemini has no entry in MODEL_PRICING, so this app cannot estimate what a
-    # call will cost or record what it did. It is still a PAID call, so it is
-    # still refused once the day's budget is gone — checked with no estimate,
-    # which is the honest version of "we cannot price this but we can see the
-    # ceiling has been reached". The corollary is stated in lib/spend: Gemini
-    # spending does not COUNT towards the ceiling, so a Gemini-only day can
-    # exceed it. Pricing the two models is what would fix that.
-    spend.check()
+    # Gemini is priced now, so it is admitted like any other paid call and
+    # settled below. It takes no effort parameter and its budget is fixed, so
+    # the estimate uses GEMINI_MAX_TOKENS and no effort.
+    admit(model, GEMINI_MAX_TOKENS, None)
 
     key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     client = genai.Client(api_key=key)
@@ -1459,6 +1469,18 @@ def _call_gemini(model: str, user_prompt: str) -> str:
             )
     except (AttributeError, IndexError, TypeError):
         pass
+
+    # Settle from the usage the response carries. Gemini names the fields
+    # differently from the other two, so they are mapped onto the same shape
+    # `settle` expects rather than teaching `settle` a third vocabulary.
+    usage = getattr(resp, "usage_metadata", None)
+    settle(
+        model,
+        {
+            "input_tokens": getattr(usage, "prompt_token_count", 0) or 0,
+            "output_tokens": getattr(usage, "candidates_token_count", 0) or 0,
+        },
+    )
     return resp.text or ""
 
 

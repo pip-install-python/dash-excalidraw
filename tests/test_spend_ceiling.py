@@ -233,9 +233,15 @@ class TestTheCallPathsAreWired:
         assert after_one == pytest.approx(first)
 
     def test_an_unpriced_model_settles_at_zero_rather_than_raising(self):
-        from lib.scene_ai import settle
+        # Every model this app offers is priced now, Gemini included, so the
+        # case needs an id from outside the tables — a model added to a
+        # selector and forgotten in MODEL_PRICING. It must not raise on the
+        # way out of a call that already succeeded and already cost money.
+        from lib.scene_ai import MODEL_PRICING, settle
 
-        assert settle("gemini-2.5-pro", {"input_tokens": 10, "output_tokens": 10}) == 0.0
+        unknown = "some-model-nobody-priced"
+        assert unknown not in MODEL_PRICING
+        assert settle(unknown, {"input_tokens": 10, "output_tokens": 10}) == 0.0
         assert spend.spent_today() == 0.0
 
     def test_no_meta_settles_at_zero(self):
@@ -306,3 +312,120 @@ class TestThePagesRefuseUpFront:
         assert len(started) == 2, "a sweep inside the budget must still run"
         assert tick_disabled is False
         assert len(cells) == 2
+
+
+class TestTheSuiteDoesNotSpendTheRealBudget:
+    """The defect that made this file necessary a second time.
+
+    MEASURED 2026-09-11: `lib.spend` resolves CACHE_DIR at import from
+    AI_SPEND_DIR or a machine-global default under $TMPDIR. Only this file's
+    own fixture isolated it, so every OTHER test that reached a paid call —
+    the mocked OpenAI ones — admitted and SETTLED against the real ledger.
+    Four suite runs on one machine consumed the whole $10 day and the fourth
+    went red with CeilingReached, in tests that never touch a network. The
+    real ledger held $6.08 of entirely fabricated spend when this was found.
+
+    On a developer's machine the same thing drains the ledger their dev server
+    reads, so `pytest` a few times and /ai-agent starts refusing real work.
+    """
+
+    def _global_default(self) -> Path:
+        return Path(os.environ.get("TMPDIR", "/tmp")) / "excalidraw-ai-spend"
+
+    def test_the_suite_ledger_is_not_the_machine_global_one(self):
+        # `isolated_ledger` points this test at tmp_path; conftest points
+        # everything ELSE at a per-run temp dir. Both must be off the default.
+        assert os.environ.get("AI_SPEND_DIR")
+        assert str(self._global_default()) != os.environ["AI_SPEND_DIR"]
+
+    def test_a_mocked_paid_call_does_not_touch_the_global_ledger(self, monkeypatch):
+        """The negative control, and it works whether or not the path exists.
+
+        Asserting "the directory was never created" is not enough on a machine
+        where an earlier run already created it — which is exactly the machine
+        this bug was found on. Snapshotting the CONTENT is what actually
+        proves the suite wrote nowhere near it.
+        """
+        import types
+
+        global_path = self._global_default()
+
+        def snapshot():
+            if not global_path.is_dir():
+                return "absent"
+            cache = diskcache.Cache(str(global_path))
+            try:
+                return sorted((k, cache.get(k)) for k in cache)
+            finally:
+                cache.close()
+
+        before = snapshot()
+
+        # A full mocked paid call: admits, calls, settles.
+        from lib import scene_ai
+
+        class _Rec:
+            def __call__(self, *, api_key=None, **_):
+                return self
+
+            @property
+            def responses(self):
+                return self
+
+            def create(self, **kwargs):
+                return types.SimpleNamespace(
+                    output_text="{}",
+                    status="completed",
+                    usage=types.SimpleNamespace(input_tokens=9_000, output_tokens=9_000),
+                    incomplete_details=None,
+                )
+
+        stub = types.ModuleType("openai")
+        stub.OpenAI = _Rec()
+        monkeypatch.setitem(sys.modules, "openai", stub)
+        monkeypatch.setenv("CHATGPT_API_KEY", "sk-test")
+        scene_ai._call_openai("gpt-6-astra", "draw", 24000, "low")
+
+        # It really did record — against the isolated ledger.
+        assert spend.spent_today() > 0
+
+        assert snapshot() == before, (
+            "a mocked test wrote into the machine-global spend ledger; on a "
+            "developer's box this drains the budget their dev server reads"
+        )
+
+
+class TestGeminiCountsNow:
+    """The hole E3 shipped with, closed.
+
+    Refusing Gemini once the ceiling is reached was never the difficulty —
+    COUNTING it was, and without a price it could not be counted. A day of
+    nothing but Gemini could therefore pass the cap without tripping it.
+    """
+
+    def test_both_models_are_priced(self):
+        from lib.scene_ai import GEMINI_MODELS, MODEL_PRICING
+
+        assert GEMINI_MODELS, "corpus empty — the loop below would be vacuous"
+        for entry in GEMINI_MODELS:
+            assert entry["value"] in MODEL_PRICING
+            inp, out = MODEL_PRICING[entry["value"]]
+            assert inp > 0 and out > inp, "output should not be cheaper than input"
+
+    def test_a_gemini_call_is_recorded(self):
+        from lib.scene_ai import MODEL_PRICING, settle
+
+        charged = settle(
+            "gemini-2.5-pro", {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+        )
+        assert charged == pytest.approx(sum(MODEL_PRICING["gemini-2.5-pro"]))
+        assert spend.spent_today() == pytest.approx(charged)
+
+    def test_gemini_stays_out_of_the_comparison_axis(self):
+        # Priceable and comparable are different questions: /benchmark needs a
+        # budget and an effort control, and `_call_gemini` has neither.
+        from lib.scene_ai import COMPARABLE_MODELS, GEMINI_MODELS
+
+        comparable = {m["value"] for m in COMPARABLE_MODELS}
+        for entry in GEMINI_MODELS:
+            assert entry["value"] not in comparable

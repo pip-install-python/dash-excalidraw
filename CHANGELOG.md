@@ -45,9 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implied to be a hard cap. The ledger is diskcache-backed for the same reason
   the scene buffer is: a counter in a module global would give each of the two
   gunicorn workers its own budget, making the real ceiling a function of
-  `WEB_CONCURRENCY`. Known hole, written down: Gemini has no published price
-  here, so it is refused once the ceiling is reached but does not count
-  towards it.
+  `WEB_CONCURRENCY`.
+
+  The ledger lives under the system temp directory, which on Render is inside
+  the container — shared by both workers, as the ceiling requires, and reset
+  on every deploy, so a redeploy starts the day over. Point `AI_SPEND_DIR` at
+  a persistent disk if a day should survive deploys.
 
 - **`/trace-image`** — upload a reference image and have the model redraw it
   with Excalidraw's own primitives, streaming onto the canvas beside the

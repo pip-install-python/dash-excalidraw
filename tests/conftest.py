@@ -50,6 +50,25 @@ SECRET_ENV_KEYS = (
 for _key in SECRET_ENV_KEYS:
     os.environ[_key] = ""
 
+# --- 1b. Isolate the on-disk stores BEFORE anything imports them ------------
+#
+# THE BUG THIS EXISTS FOR, measured 2026-09-11: `lib/spend.py` resolves its
+# CACHE_DIR at import from `AI_SPEND_DIR` or a MACHINE-GLOBAL default under
+# $TMPDIR. Only tests/test_spend_ceiling.py isolated it, so every other test
+# that reaches a paid call — the mocked OpenAI ones in
+# tests/test_openai_provider.py — admitted and SETTLED against the real
+# ledger. Four suite runs on one machine spent the whole $10 day and the
+# fourth went red with `CeilingReached`, in tests that never touch a network.
+# On a developer's machine the suite would also drain the ledger their dev
+# server reads, refusing real generations after a few `pytest` invocations.
+#
+# The env has to be set HERE, above the import below, because both modules
+# read it at import time and `from lib.scene_ai import ...` pulls in
+# `lib.spend` transitively.
+_TMP_STORES = tempfile.mkdtemp(prefix="boilerplate-stores-")
+os.environ["AI_SPEND_DIR"] = os.path.join(_TMP_STORES, "spend")
+os.environ["SCENE_STREAM_DIR"] = os.path.join(_TMP_STORES, "scene-stream")
+
 # Provider API keys are NOT listed above, deliberately. They are imported from
 # the module that reads them, because a hand-kept copy is exactly how the last
 # hole opened: CHATGPT_API_KEY reached lib/scene_ai.py and never reached a
@@ -63,6 +82,19 @@ from lib.scene_ai import PROVIDER_KEY_VARS  # noqa: E402
 
 for _key in PROVIDER_KEY_VARS:
     os.environ[_key] = ""
+
+# Belt and braces: if anything imported either module before this file ran,
+# its CACHE_DIR is already resolved and the env above came too late. Rebinding
+# makes the isolation hold regardless of import order, and the assertion says
+# so out loud rather than leaving a silently-shared ledger.
+from lib import spend as _spend  # noqa: E402
+from lib import scene_stream as _scene_stream  # noqa: E402
+
+_spend.CACHE_DIR = os.environ["AI_SPEND_DIR"]
+_spend._cache = None
+_scene_stream.CACHE_DIR = os.environ["SCENE_STREAM_DIR"]
+_scene_stream._cache = None
+assert _TMP_STORES in _spend.CACHE_DIR, "the spend ledger is not isolated"
 
 # --- 2. Keep app state out of the repo --------------------------------------
 # Without this the suite appends its own hits to the checked-out
