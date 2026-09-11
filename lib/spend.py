@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import tempfile
 import threading
 from datetime import datetime, timezone
 
@@ -80,9 +81,20 @@ _CEILING_ENV = "AI_DAILY_CEILING_USD"
 # drift, and a budget that drifts is a budget nobody trusts.
 _MICRO = 1_000_000
 
-CACHE_DIR = os.environ.get(
-    "AI_SPEND_DIR", os.path.join(os.environ.get("TMPDIR", "/tmp"), "excalidraw-ai-spend")
-)
+# `tempfile.gettempdir()`, NOT `os.environ["TMPDIR"]`. They agree in a shell
+# that exports TMPDIR and disagree in one that does not — which is how the
+# test suite's own guard ended up watching a different directory from the one
+# this module writes to, and reporting a clean result for a path nothing had
+# touched. `gettempdir()` is also what lib/scene_stream uses; two modules with
+# two spellings of "the temp directory" is a defect waiting for a machine that
+# distinguishes them.
+#
+# Exposed as a name because the suite's control watches it: the guard asks the
+# module where it would write rather than re-deriving the path and hoping the
+# two expressions stay in step.
+DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "excalidraw-ai-spend")
+
+CACHE_DIR = os.environ.get("AI_SPEND_DIR", DEFAULT_CACHE_DIR)
 
 # Yesterday's total is worth keeping long enough to be looked at, and no
 # longer. Eight days covers a week's glance.

@@ -23,6 +23,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import conftest
 import diskcache
 import pytest
 
@@ -329,40 +330,30 @@ class TestTheSuiteDoesNotSpendTheRealBudget:
     reads, so `pytest` a few times and /ai-agent starts refusing real work.
     """
 
-    def _global_default(self) -> Path:
-        return Path(os.environ.get("TMPDIR", "/tmp")) / "excalidraw-ai-spend"
-
     def test_the_suite_ledger_is_not_the_machine_global_one(self):
         # `isolated_ledger` points this test at tmp_path; conftest points
         # everything ELSE at a per-run temp dir. Both must be off the default.
         assert os.environ.get("AI_SPEND_DIR")
-        assert str(self._global_default()) != os.environ["AI_SPEND_DIR"]
+        for root, _ in conftest.global_store_snapshot():
+            assert root != os.environ["AI_SPEND_DIR"]
 
     def test_a_mocked_paid_call_does_not_touch_the_global_ledger(self, monkeypatch):
-        """The negative control, and it works whether or not the path exists.
+        """The negative control — and the instrument must not disturb it.
 
-        Asserting "the directory was never created" is not enough on a machine
-        where an earlier run already created it — which is exactly the machine
-        this bug was found on. Snapshotting the CONTENT is what actually
-        proves the suite wrote nowhere near it.
+        The FIRST version of this test snapshotted by opening
+        `diskcache.Cache(global_path)`. A diskcache open CREATES the directory
+        and writes cache.db, so the control touched the very thing it asserted
+        untouched, and passed anyway because it compared its own two opens to
+        each other. Measured: a bare open of a non-existent path leaves a
+        directory containing cache.db.
+
+        `conftest.global_store_snapshot` hashes bytes off the filesystem and
+        opens nothing. Content, not existence — on a machine where an earlier
+        run already created the path, "it does not exist" is not a control.
         """
         import types
 
-        global_path = self._global_default()
-
-        def snapshot():
-            if not global_path.is_dir():
-                return "absent"
-            cache = diskcache.Cache(str(global_path))
-            try:
-                return sorted((k, cache.get(k)) for k in cache)
-            finally:
-                cache.close()
-
-        before = snapshot()
-
-        # A full mocked paid call: admits, calls, settles.
-        from lib import scene_ai
+        before = conftest.global_store_snapshot()
 
         class _Rec:
             def __call__(self, *, api_key=None, **_):
@@ -380,18 +371,39 @@ class TestTheSuiteDoesNotSpendTheRealBudget:
                     incomplete_details=None,
                 )
 
+        from lib import scene_ai
+
         stub = types.ModuleType("openai")
         stub.OpenAI = _Rec()
         monkeypatch.setitem(sys.modules, "openai", stub)
         monkeypatch.setenv("CHATGPT_API_KEY", "sk-test")
         scene_ai._call_openai("gpt-6-astra", "draw", 24000, "low")
 
-        # It really did record — against the isolated ledger.
+        # It really did record — against the isolated ledger. Without this the
+        # test would pass by doing nothing at all.
         assert spend.spent_today() > 0
 
-        assert snapshot() == before, (
-            "a mocked test wrote into the machine-global spend ledger; on a "
-            "developer's box this drains the budget their dev server reads"
+        assert conftest.global_store_snapshot() == before, (
+            "a mocked test wrote into a machine-global store; on a developer's "
+            "box this drains the budget their dev server reads"
+        )
+
+    def test_the_snapshot_would_notice_a_write(self, tmp_path, monkeypatch):
+        """Non-vacuity: a control that cannot detect a change is not one."""
+        root = tmp_path / "fake-global"
+        monkeypatch.setattr(conftest, "GLOBAL_STORES", (str(root),))
+
+        assert conftest.global_store_snapshot() == [(str(root), "absent")]
+
+        root.mkdir()
+        (root / "cache.db").write_bytes(b"x")
+        created = conftest.global_store_snapshot()
+        assert created != [(str(root), "absent")]
+
+        (root / "cache.db").write_bytes(b"y")
+        assert conftest.global_store_snapshot() != created, (
+            "the snapshot compares existence only — a rewritten file would slip "
+            "through, which is exactly how the diskcache-open version passed"
         )
 
 
@@ -429,3 +441,38 @@ class TestGeminiCountsNow:
         comparable = {m["value"] for m in COMPARABLE_MODELS}
         for entry in GEMINI_MODELS:
             assert entry["value"] not in comparable
+
+
+class TestTheGuardWatchesWhatTheCodeUses:
+    """A guard that computes the path itself can drift from the code.
+
+    It did. `lib/spend` resolved its default from `os.environ["TMPDIR"]` while
+    `lib/scene_stream` and the suite's guard used `tempfile.gettempdir()`.
+    Those agree in a shell that exports TMPDIR and disagree in one that does
+    not — so in the pytest process the guard watched
+    /var/folders/.../excalidraw-ai-spend while the module wrote to
+    $TMPDIR/excalidraw-ai-spend, and reported a clean result for a directory
+    nothing had touched. Two spellings of "the temp directory" in one codebase
+    is a defect waiting for a machine that distinguishes them.
+    """
+
+    def test_the_guard_watches_the_modules_own_defaults(self):
+        from lib import scene_stream
+
+        watched = {root for root, _ in conftest.global_store_snapshot()}
+        assert spend.DEFAULT_CACHE_DIR in watched
+        assert scene_stream.DEFAULT_CACHE_DIR in watched
+
+    def test_both_modules_spell_the_temp_directory_the_same_way(self):
+        import tempfile
+
+        from lib import scene_stream
+
+        base = tempfile.gettempdir()
+        assert spend.DEFAULT_CACHE_DIR.startswith(base)
+        assert scene_stream.DEFAULT_CACHE_DIR.startswith(base)
+
+    def test_the_env_override_still_wins(self, monkeypatch):
+        # The default is only a default; AI_SPEND_DIR is what the suite and a
+        # persistent-disk deployment both rely on.
+        assert os.environ["AI_SPEND_DIR"] != spend.DEFAULT_CACHE_DIR

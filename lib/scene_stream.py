@@ -76,9 +76,11 @@ ELEMENT_TTL = MAX_RUN_SECONDS + RUN_TTL
 # quieter form. Configurable because a container may want it on a mounted
 # volume; the default lands in the system temp dir, which on Render is local
 # to the instance and shared by its workers.
-CACHE_DIR = os.environ.get(
-    "SCENE_STREAM_DIR", os.path.join(tempfile.gettempdir(), "excalidraw-scene-stream")
-)
+# Exposed as a name so the test suite's guard can ask this module where it
+# would write, rather than re-deriving the path — see lib/spend.DEFAULT_CACHE_DIR.
+DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "excalidraw-scene-stream")
+
+CACHE_DIR = os.environ.get("SCENE_STREAM_DIR", DEFAULT_CACHE_DIR)
 
 _cache: diskcache.Cache | None = None
 _cache_lock = threading.Lock()

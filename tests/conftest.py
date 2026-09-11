@@ -28,6 +28,7 @@ this is belt-and-braces. Same pattern as 2plotai and pip-docs+.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 import sys
@@ -95,6 +96,75 @@ _spend._cache = None
 _scene_stream.CACHE_DIR = os.environ["SCENE_STREAM_DIR"]
 _scene_stream._cache = None
 assert _TMP_STORES in _spend.CACHE_DIR, "the spend ledger is not isolated"
+
+# The machine-global paths the suite must never touch. Kept as strings and
+# probed with `os`/`hashlib` only — see `global_store_snapshot`.
+# ASKED OF THE MODULES, not re-derived. A guard that computes the path itself
+# can drift from the code it guards, and did: lib/spend used
+# `os.environ["TMPDIR"]` while this file used `tempfile.gettempdir()`, so in a
+# process without TMPDIR exported the guard watched a directory nothing wrote
+# to and reported clean.
+GLOBAL_STORES = (_spend.DEFAULT_CACHE_DIR, _scene_stream.DEFAULT_CACHE_DIR)
+
+
+def global_store_snapshot():
+    """Fingerprint the machine-global stores WITHOUT opening them.
+
+    The instrument must not disturb the measurement, and the first version of
+    this control did: it snapshotted by opening `diskcache.Cache(path)`, and a
+    diskcache open CREATES the directory and writes cache.db. So the control
+    touched the thing it asserted untouched and then passed, because it was
+    comparing its own two opens to each other. Measured: a bare open of a
+    non-existent path leaves a directory containing cache.db.
+
+    Hashing bytes off the filesystem creates nothing and reads everything that
+    matters — content, not merely existence, because on a machine where an
+    earlier run already created the path "it does not exist" is not a control.
+    """
+    out = []
+    for root in GLOBAL_STORES:
+        if not os.path.isdir(root):
+            out.append((root, "absent"))
+            continue
+        entries = []
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for name in sorted(filenames):
+                full = os.path.join(dirpath, name)
+                try:
+                    with open(full, "rb") as fh:
+                        digest = hashlib.sha256(fh.read()).hexdigest()
+                except OSError:
+                    digest = "unreadable"
+                entries.append((os.path.relpath(full, root), digest))
+        out.append((root, sorted(entries)))
+    return out
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _machine_global_stores_untouched():
+    """THE WHOLE SUITE is the control, not one call inside one test.
+
+    A per-test control can only speak for the path it exercises. This one
+    fails the session if anything, anywhere, moved the real ledger — which is
+    the property that actually matters: `pytest` must never spend the budget
+    the dev server reads.
+    """
+    before = global_store_snapshot()
+    yield
+    after = global_store_snapshot()
+    if after != before:
+        moved = [
+            root
+            for (root, b), (_r, a) in zip(before, after)
+            if b != a
+        ]
+        raise AssertionError(
+            "the test suite modified a machine-global store: "
+            + ", ".join(moved)
+            + ". Mocked tests settle real amounts, so this drains the ledger "
+            "the developer's own server reads."
+        )
+
 
 # --- 2. Keep app state out of the repo --------------------------------------
 # Without this the suite appends its own hits to the checked-out
