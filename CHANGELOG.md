@@ -31,13 +31,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `IMMEDIATELY`, so the whole drawing is a single undo step rather than one
   per poll. Gemini keeps the one-shot path — its SDK has no streaming call.
 
-- **A Stop button on `/ai-agent`.** Presses the brakes on a generation in
+- **`/trace-image`** — upload a reference image and have the model redraw it
+  with Excalidraw's own primitives, streaming onto the canvas beside the
+  original. Same controls as `/ai-agent` (model, effort, max tokens) with the
+  cost estimate accounting for the image's input tokens, which a prompt-only
+  page does not have to. The system prompt is spliced from the shared one, so
+  the JSON contract and the parser are identical and only the task changes; it
+  tells the model to match layout, structure, text and colour in that order,
+  and explicitly NOT to chase photographic detail with hundreds of freedraw
+  strokes, which exhausts the budget before the layout is down. Models are
+  refused an image unless they are in `VISION_MODELS` — a model that silently
+  ignores one would trace from the prompt alone and return a confident drawing
+  of nothing in particular.
+
+- **A Stop button on `/ai-agent` and `/trace-image`.** Presses the brakes on a generation in
   flight: it closes the provider stream, so the model stops generating and
   billing stops at the tokens already produced. Ending the poll alone would
   have left the run going to its full budget with nobody reading it. The
   cancel flag lives in the shared store, so it works when the click is
   handled by a different worker from the one running the generation. What is
-  already drawn stays on the canvas — a stop is not an undo.
+  already drawn stays on the canvas — a stop is not an undo. `/benchmark` does
+  not have one yet: its calls are not streamed, so they cannot be interrupted
+  the same way.
 
 #### Changed
 

@@ -394,6 +394,14 @@ COMPARABLE_MODELS = [
     {"value": m["value"], "label": m["label"]} for m in CLAUDE_MODELS + OPENAI_MODELS
 ]
 
+# Models that accept an image alongside the prompt — what /trace-image needs.
+# MEASURED 2026-09-10, not assumed: every Claude entry reports
+# `image_input.supported: true` from `GET /v1/models/{id}`, and all four
+# OpenAI entries list input modalities "text, image" on their model pages. All
+# nine qualify today; the set exists so that stops being an assumption the
+# moment a text-only model is added to either list.
+VISION_MODELS = {m["value"] for m in COMPARABLE_MODELS}
+
 
 class ElementStreamParser:
     """Pulls whole elements out of a scene JSON that is still being written.
@@ -597,6 +605,48 @@ def _spend_allowed() -> bool:
     return not in_production
 
 
+TRACE_SYSTEM_PROMPT = (
+    SYSTEM_PROMPT.split("ELEMENT TYPES")[0]
+    + """ELEMENT TYPES
+- rectangle, ellipse, diamond — shapes and regions
+- text                         — any legible words in the image
+- arrow, line                  — connectors, rules, edges
+- freedraw                     — irregular contours, sparingly
+
+YOU ARE TRACING A REFERENCE IMAGE.
+Reproduce it as closely as these six primitives allow. You are not describing
+the image and not improving it — someone should be able to put your drawing
+beside it and see the same arrangement.
+
+WHAT TO MATCH, IN ORDER
+1. LAYOUT. Relative position and size come first. A box in the upper-left
+   belongs in the upper-left, at roughly the same proportion of the canvas.
+2. STRUCTURE. Count of distinct shapes, and how they connect or nest.
+3. TEXT. Transcribe words you can actually read, positioned where they sit.
+   Do not invent labels for text you cannot make out.
+4. COLOUR. Approximate strokeColor and backgroundColor from the image rather
+   than defaulting to black on white.
+
+WHAT NOT TO DO
+- Do not approximate photographic detail, gradients, shadows or texture with
+  hundreds of freedraw strokes. Six clean shapes that capture the arrangement
+  beat six hundred that capture noise and exhaust the token budget.
+- Do not add a title, caption, legend or annotation that is not in the image.
+- Do not stylise. If the image is a plain flowchart, draw a plain flowchart.
+
+Work in a canvas roughly 1200x800 unless the image is clearly portrait, and
+keep the aspect ratio of the original arrangement.
+"""
+    + SYSTEM_PROMPT.split("ELEMENT TYPES", 1)[1].split("STYLE DISCIPLINE")[0]
+    + """STYLE DISCIPLINE
+- roughness 0 unless the reference is itself hand-drawn.
+- fillStyle "solid" when a region reads as filled in the image.
+
+Return ONLY the JSON object — no preamble, no markdown fence, no epilogue.
+"""
+)
+
+
 # The token-budget control's range. Defined here rather than inline in each
 # NumberInput so the clamp below and the widgets cannot drift apart.
 BUDGET_MIN = 1000
@@ -711,10 +761,26 @@ def resolve_effort(model: str, effort: str | None) -> str | None:
     return effort
 
 
+def image_input_tokens(width: int, height: int) -> int:
+    """Roughly what a reference image costs to send, in input tokens.
+
+    Anthropic documents ~(w x h)/750 for Claude; OpenAI bills images by patch
+    count, which is a different formula with a similar magnitude. One
+    approximation is used for both because the whole input side is ~1% of a
+    run's cost here — being exact about a term that small would buy nothing,
+    while omitting it entirely (the alternative) would quietly under-quote
+    every trace.
+    """
+    if width <= 0 or height <= 0:
+        return 0
+    return int((width * height) / 750)
+
+
 def estimate_cost(
     model: str,
     effort: str | None,
     max_tokens: int | None,
+    extra_input_tokens: int = 0,
 ) -> dict:
     """Typical and worst-case dollars for one call.
 
@@ -743,7 +809,9 @@ def estimate_cost(
     # An unsent effort means the model's own default, which is `high`-like.
     fraction = EFFORT_UTILISATION.get(applied or "none", 0.70)
 
-    fixed_input = _APPROX_INPUT_TOKENS * in_price / 1_000_000
+    fixed_input = (
+        (_APPROX_INPUT_TOKENS + max(0, extra_input_tokens)) * in_price / 1_000_000
+    )
     ceiling = fixed_input + budget * out_price / 1_000_000
     typical = fixed_input + budget * fraction * out_price / 1_000_000
     return {
@@ -1129,6 +1197,8 @@ def stream_model(
     user_prompt: str,
     max_tokens: int | None = None,
     effort: str | None = None,
+    image: tuple[str, str] | None = None,
+    system: str | None = None,
 ):
     """Yield `("element", dict)` as each element completes, then `("done", meta)`.
 
@@ -1143,6 +1213,12 @@ def stream_model(
     and the pages already surface an exception as a status line.
     """
     provider = PROVIDER_OF.get(model)
+    # Refused HERE rather than at the provider: a model that cannot see would
+    # otherwise be sent an image it silently ignores and would trace from the
+    # prompt alone, producing a confident drawing of nothing in particular.
+    if image and model not in VISION_MODELS:
+        raise ValueError(f"{model} does not accept image input.")
+
     parser = ElementStreamParser()
     # Shared across the whole run: a duplicate id anywhere in the scene costs
     # a shape, not just a duplicate of the one before it.
@@ -1157,17 +1233,35 @@ def stream_model(
         applied = resolve_effort(model, requested)
         kwargs = {"output_config": {"effort": applied}} if applied else {}
 
+        if image:
+            media_type, b64 = image
+            # Image FIRST: the instruction that follows then refers to
+            # something the model has already looked at.
+            content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": b64,
+                    },
+                },
+                {"type": "text", "text": user_prompt},
+            ]
+        else:
+            content = user_prompt
+
         with client.messages.stream(
             model=model,
             max_tokens=budget,
             system=[
                 {
                     "type": "text",
-                    "text": SYSTEM_PROMPT,
+                    "text": system or SYSTEM_PROMPT,
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[{"role": "user", "content": content}],
             **kwargs,
         ) as stream:
             for event in stream:
@@ -1216,10 +1310,28 @@ def stream_model(
     applied = resolve_effort(model, requested)
     kwargs = {"reasoning": {"effort": applied}} if applied else {}
 
+    if image:
+        media_type, b64 = image
+        request_input = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{media_type};base64,{b64}",
+                        "detail": "high",
+                    },
+                    {"type": "input_text", "text": user_prompt},
+                ],
+            }
+        ]
+    else:
+        request_input = user_prompt
+
     with client.responses.stream(
         model=model,
-        instructions=SYSTEM_PROMPT,
-        input=user_prompt,
+        instructions=system or SYSTEM_PROMPT,
+        input=request_input,
         max_output_tokens=budget,
         **kwargs,
     ) as stream:

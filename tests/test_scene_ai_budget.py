@@ -152,3 +152,83 @@ class TestTheCrossProviderRegistry:
             # "none" means send no reasoning parameter at all, which is what
             # keeps astra (whose docs omit `none`) off a value it may reject.
             assert resolve_effort(entry["value"], "none") is None
+
+
+class TestTracingAnImage:
+    """/trace-image sends a reference image alongside the prompt."""
+
+    def test_every_comparable_model_can_see(self):
+        from lib.scene_ai import COMPARABLE_MODELS, VISION_MODELS
+
+        assert VISION_MODELS, "empty set would make the assertion below vacuous"
+        # Measured: all nine accept image input today. The set exists so that
+        # stops being an assumption the moment a text-only model is added.
+        for entry in COMPARABLE_MODELS:
+            assert entry["value"] in VISION_MODELS
+
+    def test_an_image_is_refused_by_a_model_that_cannot_see(self, monkeypatch):
+        """Refused here, not at the provider.
+
+        A model that ignores an image it cannot read would trace from the
+        prompt alone and return a confident drawing of nothing in particular —
+        a wrong answer that looks exactly like a right one.
+        """
+        import lib.scene_ai as scene_ai
+
+        monkeypatch.setattr(scene_ai, "VISION_MODELS", set())
+        # A generator: the body does not run until it is advanced.
+        stream = scene_ai.stream_model(
+            "claude-opus-5", "x", image=("image/png", "AAA")
+        )
+        with pytest.raises(ValueError, match="image input"):
+            next(stream)
+
+    def test_the_trace_prompt_keeps_the_json_contract(self):
+        from lib.scene_ai import TRACE_SYSTEM_PROMPT
+
+        # It is spliced out of SYSTEM_PROMPT, so the shape instructions have
+        # to survive the swap of task — the result goes through the same
+        # parser as /ai-agent.
+        for required in (
+            "REQUIRED TOP-LEVEL SHAPE",
+            '"type": "excalidraw"',
+            "Return ONLY the JSON object",
+        ):
+            assert required in TRACE_SYSTEM_PROMPT
+        assert "YOU ARE TRACING A REFERENCE IMAGE" in TRACE_SYSTEM_PROMPT
+        # The splice joins three pieces; a botched join duplicates this header.
+        assert TRACE_SYSTEM_PROMPT.count("STYLE DISCIPLINE") == 1
+
+    def test_it_tells_the_model_not_to_trace_photographic_detail(self):
+        # The expensive failure: hundreds of freedraw strokes chasing texture,
+        # which exhausts the budget before the layout is even down.
+        from lib.scene_ai import TRACE_SYSTEM_PROMPT
+
+        assert "freedraw" in TRACE_SYSTEM_PROMPT
+        assert "gradients" in TRACE_SYSTEM_PROMPT
+
+    def test_image_tokens_scale_with_area(self):
+        from lib.scene_ai import image_input_tokens
+
+        assert image_input_tokens(0, 0) == 0
+        assert image_input_tokens(-5, 100) == 0
+        small, large = image_input_tokens(600, 300), image_input_tokens(1600, 1200)
+        assert 0 < small < large
+
+    def test_the_image_reaches_the_estimate(self):
+        # An image that is not priced would under-quote every trace, and the
+        # whole point of the label is that the number precedes the spend.
+        from lib.scene_ai import estimate_cost, image_input_tokens
+
+        large = image_input_tokens(1600, 1200)
+        base = estimate_cost("claude-opus-5", "low", 24000)
+        withimg = estimate_cost("claude-opus-5", "low", 24000, extra_input_tokens=large)
+        assert withimg["typical"] > base["typical"]
+        assert withimg["ceiling"] > base["ceiling"]
+
+    def test_a_negative_image_cost_cannot_reduce_the_quote(self):
+        from lib.scene_ai import estimate_cost
+
+        base = estimate_cost("claude-opus-5", "low", 24000)
+        odd = estimate_cost("claude-opus-5", "low", 24000, extra_input_tokens=-99999)
+        assert odd["typical"] == base["typical"]
