@@ -31,7 +31,7 @@ from dash import Input, Output, State, callback, dcc, html, no_update
 
 from dash_excalidraw import DashExcalidraw
 from docs._shared import canvas_frame, sync_canvas_theme
-from lib import scene_stream
+from lib import scene_stream, spend
 from lib.scene_ai import (
     COMPARABLE_MODELS,
     EFFORT_LEVELS,
@@ -439,6 +439,23 @@ def _trace(_clicks, model, effort, max_tokens, note, image):
         "Trace the attached reference image as an Excalidraw scene."
         + (f"\n\nAdditional instruction: {note.strip()}" if note and note.strip() else "")
     )
+
+    # The ceiling, up front. `stream_model` admits once per run too, but it is
+    # a generator: its body does not run until the worker advances it, so
+    # without this the refusal would arrive as a red error on a run that had
+    # already been created. A trace also carries the image's input tokens, so
+    # it is priced with them rather than as a bare prompt.
+    try:
+        spend.check(
+            estimate_cost(
+                model, effort, max_tokens,
+                extra_input_tokens=image_input_tokens(
+                    image.get("width") or 0, image.get("height") or 0
+                ),
+            )["typical"]
+        )
+    except spend.CeilingReached as exc:
+        return no_update, no_update, str(exc), "yellow", None, True
 
     try:
         run_id = scene_stream.start(

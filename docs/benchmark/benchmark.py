@@ -24,7 +24,7 @@ from dash import ALL, Input, Output, State, callback, dcc, no_update
 
 from dash_excalidraw import DashExcalidraw
 from docs._shared import canvas_frame
-from lib import scene_stream
+from lib import scene_stream, spend
 from lib.scene_ai import (
     CLAUDE_EFFORT,
     CLAUDE_MAX_TOKENS,
@@ -559,6 +559,19 @@ def _run(
     # is not a comparison, it is a single call wearing a comparison's UI.
     if axis == "model" and len(variants) < 2:
         return refuse("Pick at least two models to compare — one is just a single run.")
+
+    # Priced as a SWEEP, not per cell: six calls admitted one at a time would
+    # each pass a check the six together fail, which is precisely the runaway
+    # this page is most able to cause.
+    try:
+        spend.check(
+            sum(
+                estimate_cost(m, e, b)["typical"]
+                for m, e, b in variants
+            )
+        )
+    except spend.CeilingReached as exc:
+        return refuse(str(exc))
 
     cells = []
     styles = list(blank)

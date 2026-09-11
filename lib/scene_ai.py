@@ -18,6 +18,8 @@ import re
 import uuid
 from typing import Any, Dict
 
+from lib import spend
+
 SYSTEM_PROMPT = """You are an expert at producing Excalidraw scenes as JSON.
 
 Given a user request for a diagram, return ONLY a JSON object that can be used
@@ -924,6 +926,41 @@ def available_models(
     return offered, True
 
 
+def settle(model: str, meta: dict | None) -> float:
+    """Record what a finished call actually cost. Returns the amount.
+
+    Settlement is separate from admission on purpose: admission has to guess
+    from `max_tokens`, settlement knows. Called exactly ONCE per call — and
+    for a streamed run, once per RUN rather than once per element, or a
+    forty-shape scene would be billed against the budget forty times.
+    """
+    if not meta:
+        return 0.0
+    price = MODEL_PRICING.get(model)
+    if not price:
+        # No price on file: recording zero is honest (we do not know) and is
+        # why `admit` still refuses once the ceiling is reached regardless of
+        # model — an unpriced model cannot be allowed to spend freely just
+        # because this app cannot count it.
+        return 0.0
+    cost = (
+        meta.get("input_tokens", 0) * price[0]
+        + meta.get("output_tokens", 0) * price[1]
+    ) / 1_000_000
+    spend.record(cost)
+    return cost
+
+
+def admit(model: str, max_tokens, effort: str | None) -> None:
+    """Refuse a call that would take the day past the owner's ceiling.
+
+    Raises `spend.CeilingReached`, which the pages render as a plain message.
+    Called before the request is built, so a refusal costs nothing at all.
+    """
+    estimate = estimate_cost(model, effort, max_tokens)
+    spend.check(estimate["typical"] if estimate["priced"] else 0.0)
+
+
 def _call_claude(
     model: str,
     user_prompt: str,
@@ -945,11 +982,14 @@ def _call_claude(
     """
     import anthropic
 
-    client = anthropic.Anthropic()
     # Falls back to the model's own default rather than raising. This is the
     # PAID path: an unreadable box should send a known-safe budget, not an
-    # error after the user has already committed to spending.
+    # error after the user has already committed to spending. Coerced BEFORE
+    # the ceiling check so the admission prices the budget that will be sent.
     max_tokens = coerce_budget(max_tokens, CLAUDE_MAX_TOKENS.get(model, 32000))
+    admit(model, max_tokens, effort)
+
+    client = anthropic.Anthropic()
 
     # Resolve effort: the caller's choice, falling back to the per-model
     # default. "none" is a real choice, not a missing value — it means send
@@ -1030,6 +1070,7 @@ def _call_claude(
         "cache_read": getattr(usage, "cache_read_input_tokens", 0) or 0,
         "stop_reason": stop_reason,
     }
+    settle(model, meta)
     return text, meta
 
 
@@ -1068,11 +1109,13 @@ def _call_openai(
             "No ChatGPT key. Set CHATGPT_API_KEY (or OPENAI_API_KEY) in .env."
         )
 
-    client = OpenAI(api_key=key)
     # The same fallback as the Claude path, and for the same reason: this is
     # the PAID path, so an unreadable control sends a known-safe budget rather
     # than raising after the user has committed to spending.
     max_tokens = coerce_budget(max_tokens, OPENAI_MAX_TOKENS.get(model, 24000))
+    admit(model, max_tokens, effort)
+
+    client = OpenAI(api_key=key)
 
     requested_effort = (
         effort if effort is not None else (MODEL_EFFORT.get(model) or "none")
@@ -1122,6 +1165,7 @@ def _call_openai(
         "cache_read": 0,
         "stop_reason": status,
     }
+    settle(model, meta)
     return text, meta
 
 
@@ -1219,6 +1263,14 @@ def stream_model(
     if image and model not in VISION_MODELS:
         raise ValueError(f"{model} does not accept image input.")
 
+    # ONE admission per run, here, before any connection is opened — not per
+    # element. The budget is charged once at the end by `settle`, for the same
+    # reason: a forty-shape scene is one call, not forty.
+    budget_for_admission = coerce_budget(
+        max_tokens, MODEL_MAX_TOKENS.get(model, 32000)
+    )
+    admit(model, budget_for_admission, effort)
+
     parser = ElementStreamParser()
     # Shared across the whole run: a duplicate id anywhere in the scene costs
     # a shape, not just a duplicate of the one before it.
@@ -1293,6 +1345,7 @@ def stream_model(
             "cache_read": getattr(usage, "cache_read_input_tokens", 0) or 0,
             "stop_reason": stop,
         }
+        settle(model, meta)
         yield ("done", meta)
         return
 
@@ -1349,19 +1402,18 @@ def stream_model(
     # partial success as a failure. The page names the budget in the status.
     status = getattr(final, "status", None)
     usage = getattr(final, "usage", None)
-    yield (
-        "done",
-        {
-            "model": model,
-            "effort": applied or "none",
-            "effort_ignored": False,
-            "max_tokens": budget,
-            "input_tokens": getattr(usage, "input_tokens", 0) or 0,
-            "output_tokens": getattr(usage, "output_tokens", 0) or 0,
-            "cache_read": 0,
-            "stop_reason": status,
-        },
-    )
+    meta = {
+        "model": model,
+        "effort": applied or "none",
+        "effort_ignored": False,
+        "max_tokens": budget,
+        "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+        "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+        "cache_read": 0,
+        "stop_reason": status,
+    }
+    settle(model, meta)
+    yield ("done", meta)
 
 
 def _call_gemini(model: str, user_prompt: str) -> str:
@@ -1373,6 +1425,15 @@ def _call_gemini(model: str, user_prompt: str) -> str:
         raise RuntimeError(
             "google-genai is not installed. `pip install google-genai`."
         ) from exc
+
+    # Gemini has no entry in MODEL_PRICING, so this app cannot estimate what a
+    # call will cost or record what it did. It is still a PAID call, so it is
+    # still refused once the day's budget is gone — checked with no estimate,
+    # which is the honest version of "we cannot price this but we can see the
+    # ceiling has been reached". The corollary is stated in lib/spend: Gemini
+    # spending does not COUNT towards the ceiling, so a Gemini-only day can
+    # exceed it. Pricing the two models is what would fix that.
+    spend.check()
 
     key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     client = genai.Client(api_key=key)

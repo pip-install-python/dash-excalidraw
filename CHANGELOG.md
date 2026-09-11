@@ -31,6 +31,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `IMMEDIATELY`, so the whole drawing is a single undo step rather than one
   per poll. Gemini keeps the one-shot path — its SDK has no streaming call.
 
+- **A daily spend ceiling across every AI page and provider.** The sign-in
+  gate stops anonymous spending; it does nothing about a signed-in visitor
+  running `/benchmark` thirty times, or a model deciding a prompt deserves its
+  whole 128K budget. `lib/spend.py` holds one constant — `DAILY_CEILING_USD`,
+  the site owner's only dial — and refuses a call that would take the day past
+  it, with a message that says what the limit is, what has gone, and that it
+  resets at midnight UTC. `/ai-agent`'s cost label shows what is left.
+
+  Admission uses the typical cost estimate and settlement records the actual
+  one, so the day can overshoot by at most one run's difference between the
+  two — bounded, not zero, and stated that way in the module rather than
+  implied to be a hard cap. The ledger is diskcache-backed for the same reason
+  the scene buffer is: a counter in a module global would give each of the two
+  gunicorn workers its own budget, making the real ceiling a function of
+  `WEB_CONCURRENCY`. Known hole, written down: Gemini has no published price
+  here, so it is refused once the ceiling is reached but does not count
+  towards it.
+
 - **`/trace-image`** — upload a reference image and have the model redraw it
   with Excalidraw's own primitives, streaming onto the canvas beside the
   original. Same controls as `/ai-agent` (model, effort, max tokens) with the

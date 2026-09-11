@@ -38,7 +38,7 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, dcc, html, no_update
 
 from dash_excalidraw import DashExcalidraw
-from lib import scene_stream
+from lib import scene_stream, spend
 from lib.scene_ai import (  # shared with /benchmark — see lib/scene_ai.py
     CLAUDE_EFFORT,
     CLAUDE_MAX_TOKENS,
@@ -587,6 +587,7 @@ def _show_estimate(provider, model, effort, max_tokens):
         f"effort {sent}" if sent else "no effort set (the model's own default)"
     )
 
+    budget_state = spend.summary()
     parts = [
         dmc.Text(
             [
@@ -604,6 +605,19 @@ def _show_estimate(provider, model, effort, max_tokens):
             c="dimmed",
         ),
     ]
+
+    # What is left today. Shown always rather than only when low: a number
+    # that appears for the first time when you are nearly out is a number
+    # nobody has learned to read.
+    parts.append(
+        dmc.Text(
+            f"Daily budget: {format_money(budget_state['spent'])} of "
+            f"{format_money(budget_state['ceiling'])} used · "
+            f"{format_money(budget_state['remaining'])} left (resets midnight UTC).",
+            size="xs",
+            c="orange" if budget_state["fraction"] > 0.8 else "dimmed",
+        )
+    )
 
     # Say it out loud when the level in the selector is not the level that
     # will be sent — otherwise the estimate looks wrong rather than the
@@ -803,6 +817,16 @@ def _generate(_gen_clicks, provider, model, effort, max_tokens, prompt):
     }.get(provider, (False, ""))
     if missing[0]:
         return (no_update, missing[1], "red") + idle[3:]
+
+    # The ceiling, checked HERE as well as inside the call. `stream_model`
+    # admits once per run, but it is a generator whose body does not execute
+    # until the worker thread advances it — so without this the refusal would
+    # arrive as a red error on a run that had already been created. Checking
+    # up front makes a blown budget a clean, yellow "not now".
+    try:
+        spend.check(estimate_cost(model, effort, max_tokens)["typical"])
+    except spend.CeilingReached as exc:
+        return (no_update, str(exc), "yellow") + idle[3:]
 
     # ---- Gemini: no stream available, so keep the one-shot path ------------
     if provider == "gemini":
