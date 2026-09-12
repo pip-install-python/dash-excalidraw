@@ -33,7 +33,9 @@ from lib.scene_ai import (
     EFFORT_CAPABLE,
     MODEL_LABEL,
     MODEL_PRICING,
+    NO_KEYS_NOTICE,
     _spend_allowed,
+    any_provider_configured,
     coerce_budget,
     estimate_cost,
     format_money,
@@ -43,6 +45,8 @@ from lib.scene_ai import (
 # of the page is comparison, not exhaustiveness — beyond about six panels you
 # stop being able to see them at a glance, which is the whole feature.
 MAX_VARIANTS = 6
+
+ANY_KEY = any_provider_configured()
 
 EFFORT_CHOICES = ["none", "low", "medium", "high", "xhigh", "max"]
 BUDGET_CHOICES = ["4000", "8000", "16000", "24000", "48000", "64000"]
@@ -199,8 +203,16 @@ component = dmc.Stack(
     gap="md",
     children=[
         dmc.Alert(
+            NO_KEYS_NOTICE,
+            title="AI generation is disabled on this site",
+            color="blue",
+            variant="light",
+            style={} if not ANY_KEY else {"display": "none"},
+        ),
+        dmc.Alert(
             title="This page spends real API credits",
             color="yellow",
+            style={"display": "none"} if not ANY_KEY else {},
             children=(
                 "Each variant is a separate paid model call. The estimate below "
                 "updates as you change the matrix — check it before running."
@@ -339,6 +351,7 @@ component = dmc.Stack(
                             dmc.Button(
                                 "Run benchmark",
                                 id="bm-run",
+                                disabled=not ANY_KEY,
                             ),
                             # THE BRAKES. This page is the reason they matter
                             # most: one click is up to six paid calls running
@@ -432,6 +445,9 @@ def _estimate_cost(model, axis, efforts, budgets, models, fixed_budget, fixed_ef
     shows the ceiling beside the typical figure, because `max_tokens` bounds
     the spend but does not determine it.
     """
+    if not ANY_KEY:
+        return "No provider keys on this site — nothing is spent here."
+
     variants = _variants(
         model, axis, efforts, budgets, models, fixed_budget, fixed_effort
     )
@@ -524,6 +540,14 @@ def _run(
 
     def refuse(message, color="yellow"):
         return None, True, message, color, blank, nothing, nothing
+
+    # THIS PAGE HAD NO KEY CHECK AT ALL — measured 2026-09-12 against a
+    # keyless process: it started every variant, enabled the ticker, and each
+    # cell failed separately from its worker thread. A spinner followed by six
+    # red panels, for a site that is never going to have keys. Refused here
+    # instead, in the same words and colour as the notice on the page.
+    if not ANY_KEY:
+        return refuse(NO_KEYS_NOTICE, "blue")
 
     if not prompt or not prompt.strip():
         return refuse("Write a prompt first.")
@@ -761,5 +785,8 @@ def _lock_controls(tick_disabled):
     milliseconds, so a `running=` lock would release while six models were
     still drawing."""
     sweeping = not tick_disabled
-    # Stop is enabled precisely when the rest are not.
-    return sweeping, sweeping, not sweeping, sweeping, sweeping
+    # `or not ANY_KEY` keeps Run off for good on a keyless deployment; without
+    # it this callback re-enables it on first render.
+    off = sweeping or not ANY_KEY
+    # Stop is enabled precisely when a sweep is running.
+    return sweeping, off, not sweeping, off, off

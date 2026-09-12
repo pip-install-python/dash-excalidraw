@@ -940,6 +940,48 @@ def available_models(
     return offered, True
 
 
+# ---------------------------------------------------------------------------
+#  Is this deployment able to call anything at all?
+# ---------------------------------------------------------------------------
+#
+# THE PRODUCTION POSTURE, decided 2026-09-12: excalidraw.2plot.dev carries NO
+# provider keys. The site is documentation and the owner will not spend tokens
+# on demos for anonymous visitors. So the AI pages are permanently in this
+# state on the wire, and that state is a first-class thing to render — not an
+# error path that happens to be taken every time.
+#
+# What it must NOT look like: red badges, a spinner, a run that starts and
+# then fails per-cell. A reader seeing any of those files "the AI page is
+# broken", and they would be right to.
+
+NO_KEYS_NOTICE = (
+    "This site runs without provider keys — the AI pages are documentation "
+    "here, not a hosted service. To use them, clone the repo and add a `.env` "
+    "with a provider key; everything on this page then works locally, "
+    "including the cost estimate and the daily spend ceiling."
+)
+
+
+def configured_providers() -> set[str]:
+    """Providers this deployment holds a key for, read at CALL time.
+
+    Not cached and not read at import, so a developer who edits `.env` and
+    restarts gets the new posture, and so the tests can vary it.
+    """
+    found = set()
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        found.add("claude")
+    if os.environ.get("CHATGPT_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+        found.add("chatgpt")
+    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        found.add("gemini")
+    return found
+
+
+def any_provider_configured() -> bool:
+    return bool(configured_providers())
+
+
 def settle(model: str, meta: dict | None) -> float:
     """Record what a finished call actually cost. Returns the amount.
 

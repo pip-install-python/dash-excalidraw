@@ -39,10 +39,12 @@ from lib.scene_ai import (
     MODEL_LABEL,
     MODEL_MAX_TOKENS,
     MODEL_PRICING,
+    NO_KEYS_NOTICE,
     PROVIDER_OF,
     TRACE_SYSTEM_PROMPT,
     VISION_MODELS,
     _spend_allowed,
+    any_provider_configured,
     estimate_cost,
     format_money,
     image_input_tokens,
@@ -61,6 +63,8 @@ TRACE_MODELS = [m for m in COMPARABLE_MODELS if m["value"] in VISION_MODELS]
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
 ACCEPTED = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+ANY_KEY = any_provider_configured()
 
 HAS_CLAUDE_KEY = bool(os.environ.get("ANTHROPIC_API_KEY"))
 HAS_CHATGPT_KEY = bool(os.environ.get("CHATGPT_API_KEY")) or bool(
@@ -106,9 +110,20 @@ def _decode_upload(contents: str) -> tuple[str, str, int, int, int]:
 component = dmc.Stack(
     gap="md",
     children=[
+        # Exactly one of these two shows. Which one depends on whether this
+        # deployment can call anything at all — a spend warning on a site that
+        # cannot spend is as misleading as a missing one on a site that can.
+        dmc.Alert(
+            NO_KEYS_NOTICE,
+            title="AI generation is disabled on this site",
+            color="blue",
+            variant="light",
+            style={} if not ANY_KEY else {"display": "none"},
+        ),
         dmc.Alert(
             title="This page spends real API credits",
             color="yellow",
+            style={"display": "none"} if not ANY_KEY else {},
             children=(
                 "Tracing sends your image and a long instruction to a paid "
                 "model. The estimate below includes the image's own input "
@@ -210,6 +225,7 @@ component = dmc.Stack(
                                 "Trace this image",
                                 id="trace-run-btn",
                                 color="indigo",
+                                disabled=not ANY_KEY,
                             ),
                             # THE BRAKES. A trace sends an image on every
                             # run, so its input cost is higher than a prompt-
@@ -422,6 +438,12 @@ def _trace(_clicks, model, effort, max_tokens, note, image):
     if not image:
         return no_update, no_update, "Upload a reference image first.", "yellow", None, True
 
+    # The button is disabled without a key, so this is only reachable by a
+    # crafted request. Answered in the same words and colour as the page's
+    # own notice — a caller here has not done anything wrong.
+    if not ANY_KEY:
+        return no_update, no_update, NO_KEYS_NOTICE, "blue", None, True
+
     if not _spend_allowed():
         return (
             no_update, no_update,
@@ -620,5 +642,7 @@ def _stop(_clicks, run):
 def _lock_controls(tick_disabled):
     """The ticker being enabled IS "a trace is in progress"."""
     drawing = not tick_disabled
-    # Stop is enabled precisely when the rest are not.
-    return drawing, drawing, not drawing, drawing, drawing, drawing
+    # `or not ANY_KEY` keeps the run button off for good on a keyless site.
+    off = drawing or not ANY_KEY
+    # Stop is enabled precisely when a trace is running.
+    return drawing, off, not drawing, off, off, off

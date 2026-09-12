@@ -280,6 +280,11 @@ class TestThePagesRefuseUpFront:
     def test_benchmark_prices_the_whole_sweep_not_one_cell(self, monkeypatch):
         from docs.benchmark import benchmark
 
+        # The suite runs keyless (conftest blanks every provider key), so the
+        # page's own no-keys refusal fires before the ceiling is consulted.
+        # This test is about the CEILING, so it puts the page in the posture a
+        # developer with a `.env` has.
+        monkeypatch.setattr(benchmark, "ANY_KEY", True)
         monkeypatch.setattr(spend, "DAILY_CEILING_USD", 1.0)
         started = []
         monkeypatch.setattr(
@@ -299,6 +304,7 @@ class TestThePagesRefuseUpFront:
     def test_benchmark_runs_when_the_sweep_fits(self, monkeypatch):
         from docs.benchmark import benchmark
 
+        monkeypatch.setattr(benchmark, "ANY_KEY", True)
         monkeypatch.setattr(spend, "DAILY_CEILING_USD", 1000.0)
         started = []
         monkeypatch.setattr(

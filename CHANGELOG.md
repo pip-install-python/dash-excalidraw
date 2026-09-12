@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+#### Note for readers of the deployed site
+
+**The AI pages on <https://excalidraw.2plot.dev> are documentation, not a
+hosted service.** That deployment carries no provider keys, so `/ai-agent`,
+`/benchmark` and `/trace-image` show a notice and their run controls are
+disabled. Nothing there spends anything, and nothing is broken — the owner
+declined to spend tokens on demos for anonymous visitors, which is a
+deliberate decision and not a misconfiguration.
+
+Everything described below works when you run the repo locally with a `.env`
+holding a provider key: streaming onto the canvas, the cost estimate, the Stop
+button and the daily spend ceiling included.
+
 #### Added
 
 - **ChatGPT joins Claude and Gemini on `/ai-agent`, and `/benchmark` can now

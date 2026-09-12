@@ -14,6 +14,13 @@ lastmod: 2026-09-10
 
 .. toc::
 
+> **On this site these pages are documentation, not a hosted service.**
+> excalidraw.2plot.dev carries no provider keys, so generation is disabled
+> here and nothing below will spend anything. Everything on the page —
+> streaming onto the canvas, the cost estimate, the Stop button, the daily
+> spend ceiling — works when you run the repo locally with a `.env` holding a
+> provider key. This is deliberate and not a fault.
+
 ### Overview
 
 [AI agent](/ai-agent) answers *can it draw this?* This page answers the question

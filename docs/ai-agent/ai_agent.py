@@ -46,9 +46,11 @@ from lib.scene_ai import (  # shared with /benchmark — see lib/scene_ai.py
     MODEL_PRICING,
     EFFORT_CAPABLE,
     EFFORT_LEVELS,
+    NO_KEYS_NOTICE,
     MODEL_EFFORT,
     MODEL_MAX_TOKENS,
     OPENAI_MODELS,
+    any_provider_configured,
     available_models,
     call_model,
     estimate_cost,
@@ -90,6 +92,10 @@ def offered_claude_models():
 # ---------------------------------------------------------------------------
 # Prompt template (domain-specific instructions for producing Excalidraw JSON)
 # ---------------------------------------------------------------------------
+
+# Read once at import: on the deployed site this never changes, and locally a
+# `.env` edit means a restart anyway.
+ANY_KEY = any_provider_configured()
 
 HAS_CLAUDE_KEY = bool(os.environ.get("ANTHROPIC_API_KEY"))
 # CHATGPT_API_KEY is this site's name; OPENAI_API_KEY is the SDK's own and is
@@ -184,6 +190,18 @@ def _format_parse_error(raw: str, exc: json.JSONDecodeError) -> str:
 
 
 def _provider_status():
+    if not ANY_KEY:
+        # ONE neutral notice, not three red badges. This is the permanent
+        # state of the deployed site, so it has to read as "this is how the
+        # page is here", not as a fault. Red would be a lie: nothing is
+        # broken and nothing the reader can do would fix it.
+        return dmc.Alert(
+            NO_KEYS_NOTICE,
+            title="AI generation is disabled on this site",
+            color="blue",
+            variant="light",
+        )
+
     items = []
     items.append(
         dmc.Badge(
@@ -335,6 +353,10 @@ component = dmc.Stack(
                                 leftSection="✨",
                                 color="indigo",
                                 loaderProps={"type": "dots"},
+                                # Nothing to generate with, so the control is
+                                # off rather than offering a click that can
+                                # only produce an error.
+                                disabled=not ANY_KEY,
                             ),
                             # THE BRAKES. Enabled only while a run is in
                             # flight, and filled (not subtle) because the
@@ -558,6 +580,13 @@ def _show_estimate(provider, model, effort, max_tokens):
     (quote the typical, and the bill can exceed the quote). Showing both makes
     the spread itself the information — it is exactly what effort controls.
     """
+    if not ANY_KEY:
+        return (
+            "No provider keys on this site — nothing is spent here. "
+            "The estimate works locally with a `.env`.",
+            "blue",
+        )
+
     if not model:
         # First paint: the model control ships empty and `_sync_models` fills
         # it. Without this the estimate would flash "no price on file for
@@ -663,9 +692,12 @@ def _sync_models(provider):
         return GEMINI_MODELS, GEMINI_MODELS[0]["value"], None
 
     data, verified = offered_claude_models()
+    # With no key at all, "unverified" is noise: of course it could not be
+    # checked, and the notice above already says why. The badge is for the
+    # case where a key EXISTS and the check still could not run.
     badge = (
         None
-        if verified
+        if verified or not ANY_KEY
         else dmc.Badge(
             "model list unverified", color="yellow", variant="light", size="sm"
         )
@@ -779,6 +811,13 @@ def _generate(_gen_clicks, provider, model, effort, max_tokens, prompt):
     behaviour rather than pretending otherwise.
     """
     idle = (no_update,) * 6 + (no_update, True)
+
+    # The button is disabled, so this is only reachable by a crafted request.
+    # Answered in the same words and the same colour as the notice above,
+    # because a caller who gets here has not done anything wrong either.
+    if not ANY_KEY:
+        return (no_update, NO_KEYS_NOTICE, "blue") + idle[3:]
+
     if not prompt or not prompt.strip():
         return (no_update, "Write a prompt first.", "yellow") + idle[3:]
 
@@ -1042,5 +1081,9 @@ def _lock_controls(tick_disabled):
     definition of "a run is in progress".
     """
     drawing = not tick_disabled
-    # Stop is the one control that is enabled precisely when the rest are not.
-    return (drawing, drawing, not drawing) + (drawing,) * 5
+    # `or not ANY_KEY`: with no provider configured these stay off for good.
+    # Without it this callback would re-enable the button on first render and
+    # hand the reader a click whose only outcome is a red error.
+    off = drawing or not ANY_KEY
+    # Stop is the one control that is enabled precisely when a run is going.
+    return (drawing, off, not drawing) + (off,) * 5
