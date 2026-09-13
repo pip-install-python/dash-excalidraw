@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import binascii
 import io
+import json
 import os
 import time
 
@@ -278,6 +279,38 @@ component = dmc.Stack(
                                     viewModeEnabled=True,
                                 ),
                                 min_height=520,
+                            ),
+                            # THE TRACE, AS A SCENE YOU CAN TAKE AWAY.
+                            # `externalizedSerializedData` rather than
+                            # `serializedData`: the externalized form has every
+                            # inline `data:` URI stripped to null, so what you
+                            # copy is the drawing rather than a megabyte of
+                            # base64 for the reference image you fed in. It is
+                            # the same shape `initialData` and the component's
+                            # `welcomeScene` prop take, so a trace can be
+                            # pasted straight into either.
+                            dmc.Group(
+                                justify="space-between",
+                                children=[
+                                    dmc.Text(
+                                        "Scene JSON", size="sm", fw=600, c="dimmed"
+                                    ),
+                                    dcc.Clipboard(
+                                        id="trace-copy-scene",
+                                        title="Copy scene JSON",
+                                        style={"cursor": "pointer"},
+                                    ),
+                                ],
+                            ),
+                            dmc.Code(
+                                id="trace-scene-json",
+                                block=True,
+                                children="(trace something to get a scene)",
+                                style={
+                                    "maxHeight": 220,
+                                    "overflow": "auto",
+                                    "fontSize": 11,
+                                },
                             ),
                         ],
                     ),
@@ -646,3 +679,37 @@ def _lock_controls(tick_disabled):
     off = drawing or not ANY_KEY
     # Stop is enabled precisely when a trace is running.
     return drawing, off, not drawing, off, off, off
+
+
+@callback(
+    Output("trace-scene-json", "children"),
+    Output("trace-copy-scene", "content"),
+    Input("trace-canvas", "externalizedSerializedData"),
+)
+def _offer_the_scene(externalized):
+    """Hand the finished trace back as a pasteable scene.
+
+    Why this page and not a generic export: a trace is the one scene here you
+    did not draw yourself, so it is the one you are most likely to want to
+    keep — as a `welcomeScene`, as `initialData`, or as a fixture. Re-drawing
+    it by hand is not an option, and reading it out of the network tab is not
+    a workflow.
+
+    Pretty-printed for the panel and copied verbatim, because the thing you
+    paste into Python should look like the thing you were shown.
+    """
+    if not externalized:
+        return "(trace something to get a scene)", ""
+    try:
+        scene = json.loads(externalized)
+    except (TypeError, ValueError):
+        # Never hand back something that will not `json.loads` on the other
+        # side; an unparseable blob in a copy button is worse than no button.
+        return "(the canvas produced no readable scene)", ""
+
+    elements = scene.get("elements") or []
+    if not elements:
+        return "(empty scene — nothing to copy yet)", ""
+
+    pretty = json.dumps(scene, indent=2)
+    return pretty, pretty

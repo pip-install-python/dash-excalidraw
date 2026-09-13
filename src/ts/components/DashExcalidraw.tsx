@@ -7,6 +7,7 @@ import {
     exportToCanvas,
     exportToSvg,
     getSceneVersion,
+    WelcomeScreen,
     restoreElements,
     serializeAsJSON,
 } from '@excalidraw/excalidraw';
@@ -145,6 +146,42 @@ type Props = {
      * `dash_excalidraw.helpers.restore_inline_files`.
      */
     externalizedSerializedData?: string;
+
+    /**
+     * Show Excalidraw's welcome overlay on an empty canvas.
+     *
+     * REACTIVE, unlike `UIOptions.welcomeScreen`. The vendor reads that key
+     * once while the canvas is mounting, so a switch wired to it appears to do
+     * nothing — which is exactly how it read.
+     *
+     * This works by composing Excalidraw's `<WelcomeScreen>` as a CHILD, which
+     * React mounts and unmounts with the prop. MEASURED, because the obvious
+     * alternative looks right and is not: `appState.showWelcomeScreen` exists,
+     * but `updateScene({appState: {showWelcomeScreen: false}})` leaves it
+     * `true` — the vendor filters that key out of the merge, silently. Do not
+     * "fix" this back to an appState push.
+     */
+    welcomeScreen?: boolean;
+
+    /**
+     * Words for the welcome overlay: `{title, subtitle}`. Either may be
+     * omitted. Supplying neither keeps Excalidraw's own wording.
+     *
+     * Only the TEXT is yours — the overlay's menu hints stay the vendor's, so
+     * they cannot drift out of step with the menu they describe.
+     */
+    welcomeScreenContent?: {title?: string; subtitle?: string};
+
+    /**
+     * A scene to open with when `initialData` is not given: `{elements,
+     * appState, files}`, the same shape `initialData` and
+     * `externalizedSerializedData` use, so a scene produced anywhere in this
+     * library can be pasted straight in.
+     *
+     * MOUNT-ONLY, like `initialData` — Excalidraw owns the scene afterwards.
+     * Dispatch `updateScene` to change it later.
+     */
+    welcomeScene?: Record<string, any>;
 
     /**
      * Monotonic scene version, from the package's `getSceneVersion(elements)`
@@ -783,6 +820,24 @@ function stripInlineFileUrls(jsonStr: string | undefined): string | undefined {
  * catalog; see the README for the command/event round-trip pattern used
  * for imperative actions like exports.
  */
+/* ---------------------------------------------------------------------------
+ *  The scene a canvas opens with when nobody supplies one.
+ * ---------------------------------------------------------------------------
+ *
+ * DELIBERATELY EMPTY. A default that draws something would put shapes into
+ * every canvas in every app that mounts this component without `initialData`,
+ * and the first thing each of those authors would have to do is work out how
+ * to remove them. "Nothing" is the only default that is never wrong.
+ *
+ * It exists as a NAMED constant rather than as `undefined` because it is the
+ * override point: pass `welcomeScene={...}` — any `{elements, appState,
+ * files}` object, including one copied straight out of
+ * `externalizedSerializedData` — and that becomes the opening scene instead.
+ * /trace-image will hand you one of those as JSON, which is the intended way
+ * to author a welcome scene: draw it, or have a model trace it, then paste.
+ */
+const DEFAULT_WELCOME_SCENE: Record<string, any> | undefined = undefined;
+
 const DashExcalidraw = (props: Props) => {
     const {
         id,
@@ -796,6 +851,9 @@ const DashExcalidraw = (props: Props) => {
         isCollaborating = false,
         theme = 'light',
         name,
+        welcomeScreen,
+        welcomeScreenContent,
+        welcomeScene,
         langCode = 'en',
         libraryReturnUrl,
         detectScroll = true,
@@ -842,6 +900,37 @@ const DashExcalidraw = (props: Props) => {
         }
         return undefined;
     }, [validateEmbeddable]);
+
+    /* --------- the scene the canvas opens with ---------------------------
+     * `initialData` wins; then `welcomeScene`; then the shipped default. All
+     * three are MOUNT-ONLY, which is Excalidraw's rule and not ours: it owns
+     * the scene once it has one. Computed once so a re-render cannot hand the
+     * canvas a different opening scene halfway through its life.
+     */
+    const openingScene = useMemo(
+        () => initialData ?? welcomeScene ?? DEFAULT_WELCOME_SCENE,
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [],
+    );
+
+    /* --------- name: keep appState in step with the prop ------------------
+     * Excalidraw seeds `appState.name` from the `name` prop while mounting
+     * and then stops looking, so changing it later moved the prop and left
+     * the scene still called by its old name — including in the export
+     * dialog's filename, which is the one place the name is visible.
+     * MEASURED: prop "renamed-scene" against appState.name "coverage-scene".
+     */
+    useEffect(() => {
+        if (name === undefined) return;
+        const api = apiRef.current;
+        if (!api) return;
+        const current = api.getAppState?.();
+        if (current && current.name === name) return;
+        api.updateScene({
+            appState: {name},
+            captureUpdate: CaptureUpdateAction.NEVER,
+        } as any);
+    }, [name, api]);
 
     /* --------- effective UIOptions: welcomeScreen defaults to false ------- */
     const resolvedUIOptions = useMemo<UIOptionsShape>(() => {
@@ -1536,7 +1625,7 @@ const DashExcalidraw = (props: Props) => {
                     apiRef.current = a;
                     setApi(a);
                 }}
-                initialData={initialData as any}
+                initialData={openingScene as any}
                 viewModeEnabled={viewModeEnabled}
                 zenModeEnabled={zenModeEnabled}
                 gridModeEnabled={gridModeEnabled}
@@ -1582,6 +1671,29 @@ const DashExcalidraw = (props: Props) => {
                  * DashExcalidraw.test.tsx reads that block and fails if the
                  * set of default items changes under a version bump.
                  */}
+                {welcomeScreen && (
+                    <WelcomeScreen>
+                        <WelcomeScreen.Center>
+                            {(welcomeScreenContent?.title ||
+                                welcomeScreenContent?.subtitle) && (
+                                <WelcomeScreen.Center.Heading>
+                                    {welcomeScreenContent?.title ||
+                                        welcomeScreenContent?.subtitle}
+                                </WelcomeScreen.Center.Heading>
+                            )}
+                            {welcomeScreenContent?.title &&
+                                welcomeScreenContent?.subtitle && (
+                                    <WelcomeScreen.Center.Heading>
+                                        {welcomeScreenContent.subtitle}
+                                    </WelcomeScreen.Center.Heading>
+                                )}
+                            <WelcomeScreen.Center.Menu>
+                                <WelcomeScreen.Center.MenuItemLoadScene />
+                                <WelcomeScreen.Center.MenuItemHelp />
+                            </WelcomeScreen.Center.Menu>
+                        </WelcomeScreen.Center>
+                    </WelcomeScreen>
+                )}
                 <MainMenu>
                     <MainMenu.DefaultItems.LoadScene />
                     <MainMenu.DefaultItems.SaveToActiveFile />

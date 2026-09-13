@@ -54,16 +54,18 @@ component = dmc.Stack(
     gap="md",
     children=[
         dmc.Alert(
-            color="yellow",
+            color="blue",
             variant="light",
-            title="welcomeScreen is mount-state, not reactive",
+            title="welcomeScreen is a prop now, and it is reactive",
             children=(
-                "Excalidraw only checks `welcomeScreen` while the canvas is "
-                "still in its untouched initial state. Once the user draws "
-                "or dismisses the overlay, toggling the switch can't bring "
-                "it back — that's an upstream Excalidraw design decision. "
-                "Reload the page to see the welcome screen again. The other "
-                "switches are reactive and update the canvas chrome live."
+                "`UIOptions.welcomeScreen` is read once while the canvas "
+                "mounts, so a switch bound to it does nothing after the first "
+                "paint. The overlay's real home is `appState.showWelcomeScreen`, "
+                "so the component takes a top-level `welcomeScreen` prop and "
+                "pushes it there — the switch below brings the overlay back "
+                "after you have drawn on the canvas and dismissed it. "
+                "`welcomeScreenContent={'title': …, 'subtitle': …}` puts your "
+                "own words on it."
             ),
         ),
         code_block(CODE),
@@ -84,6 +86,13 @@ component = dmc.Stack(
             DashExcalidraw(
                 id="ui-options-canvas",
                 height="600px",
+                # The overlay is driven by the top-level `welcomeScreen`
+                # prop below, not by this key — see the note above.
+                welcomeScreen=False,
+                welcomeScreenContent={
+                    "title": "dash-excalidraw",
+                    "subtitle": "Draw something, or load a scene from Python.",
+                },
                 UIOptions={
                     "welcomeScreen": False,
                     "canvasActions": {
@@ -103,8 +112,14 @@ component = dmc.Stack(
             label="The other two link states — open the hamburger menu on each",
             labelPosition="center",
         ),
+        # STACKED, not side by side. The point of these two is that you open
+        # the hamburger menu on each, and that menu is ~300px wide with a tall
+        # item list. Two of them in a column that is itself only ~860px left
+        # each canvas around 420px, so the menu covered most of its own canvas
+        # and the two examples read as broken rather than as different. A
+        # comparison you cannot see is not a comparison.
         dmc.SimpleGrid(
-            cols={"base": 1, "md": 2},
+            cols=1,
             spacing="md",
             children=[
                 dmc.Stack(
@@ -151,6 +166,10 @@ component = dmc.Stack(
 
 @callback(
     Output("ui-options-canvas", "UIOptions"),
+    # The overlay rides its own prop now. Sending it inside UIOptions as well
+    # would be writing the mount-time key that never took effect — the very
+    # thing that made this switch look dead.
+    Output("ui-options-canvas", "welcomeScreen"),
     Input("ui-welcome", "checked"),
     Input("ui-clearCanvas", "checked"),
     Input("ui-export", "checked"),
@@ -162,7 +181,7 @@ component = dmc.Stack(
 )
 def _compose_ui_options(welcome, clear_, export, load, save_img, tog_theme, change_bg, image):
     return {
-        "welcomeScreen": bool(welcome),
+        "welcomeScreen": False,
         "canvasActions": {
             "clearCanvas": bool(clear_),
             "export": bool(export),
@@ -172,4 +191,4 @@ def _compose_ui_options(welcome, clear_, export, load, save_img, tog_theme, chan
             "changeViewBackgroundColor": bool(change_bg),
         },
         "tools": {"image": bool(image)},
-    }
+    }, bool(welcome)

@@ -6,6 +6,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+#### Added
+
+- **`welcomeScreen`, `welcomeScreenContent` and `welcomeScene` props.**
+  `UIOptions.welcomeScreen` is read once while the canvas mounts, so a control
+  bound to it does nothing after the first paint. The overlay's real state is
+  `appState.showWelcomeScreen`, so `welcomeScreen` drives that instead and
+  toggles live. `welcomeScreenContent={"title": …, "subtitle": …}` puts your
+  own words on it. `welcomeScene` sets the scene the canvas opens with when
+  `initialData` is absent — the same `{elements, appState, files}` shape, so a
+  scene from anywhere in this library can be pasted in.
+
+- **`/trace-image` hands the trace back as copyable scene JSON**, taken from
+  `externalizedSerializedData` so the inline reference image is stripped out.
+  Draw or trace a scene, copy it, paste it into `welcomeScene` or
+  `initialData`.
+
+#### Fixed
+
+- **`sceneVersion` was never computed.** `getSceneVersion` is a standalone
+  export of `@excalidraw/excalidraw`, not a method on the imperative API; the
+  component called it as a method behind a `typeof === "function"` guard, so it
+  was always `undefined` and the guard made that silent. The prop never
+  reached Python and any callback holding it as an Input never fired — which
+  is why `/coverage`'s read-only panel sat at null however much you drew.
+
+- **`addFiles` registered files nothing could observe.** It touches no element,
+  so Excalidraw fires no change event and the `files` prop never mentioned the
+  file just added. The command now reports the file store itself.
+
+- **`toggleSidebar` was being given a tab name as a sidebar name.** Excalidraw's
+  built-in sidebar is `"default"`; `"library"` and `"search"` are tabs within
+  it, so `{name: "library"}` addressed nothing and returned false. `/library`'s
+  and `/commands`' buttons now pass `{name: "default", tab: "library"}`, and the
+  component warns when a `toggleSidebar` finds no such sidebar rather than
+  letting the command evaporate.
+
+- **`/ui-options`' two link-state canvases were side by side** in a column too
+  narrow for the hamburger menu they exist to demonstrate, so the menu covered
+  its own canvas. Stacked.
+
 #### Note for readers of the deployed site
 
 **The AI pages on <https://excalidraw.2plot.dev> are documentation, not a

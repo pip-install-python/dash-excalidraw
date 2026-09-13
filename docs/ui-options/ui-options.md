@@ -13,6 +13,35 @@ lastmod: 2026-09-09
 
 .. toc::
 
+### The welcome screen is a prop, and it is reactive
+
+`UIOptions.welcomeScreen` is read **once**, while the canvas mounts. A control
+bound to it appears to do nothing, because by the time you click it Excalidraw
+has stopped looking. The overlay's real state is `appState.showWelcomeScreen`,
+so the component takes a top-level prop and pushes it there:
+
+```python
+DashExcalidraw(
+    id="canvas",
+    welcomeScreen=True,
+    welcomeScreenContent={
+        "title": "dash-excalidraw",
+        "subtitle": "Draw something, or load a scene from Python.",
+    },
+)
+```
+
+`welcomeScreen` toggles live — it brings the overlay back after you have drawn
+and dismissed it. `welcomeScreenContent` replaces the wording; the menu hints
+stay Excalidraw's own, so they cannot fall out of step with the menu they
+describe.
+
+To open on a scene rather than a blank canvas, pass `welcomeScene` — any
+`{elements, appState, files}` object, which is the shape `initialData` and
+`externalizedSerializedData` both use. [/trace-image](/trace-image) will hand
+you one as copyable JSON. It is mount-only, like `initialData`: Excalidraw
+owns the scene once it has one.
+
 ### Overview
 
 The JSON-safe subset of Excalidraw's UIOptions prop. Toggle the switches below

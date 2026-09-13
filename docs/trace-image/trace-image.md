@@ -21,6 +21,18 @@ lastmod: 2026-09-10
 > spend ceiling — works when you run the repo locally with a `.env` holding a
 > provider key. This is deliberate and not a fault.
 
+### Taking the trace away
+
+Under the traced canvas is its **scene JSON** with a copy button. It is
+`externalizedSerializedData`, not `serializedData` — every inline `data:` URI
+is stripped to null, so what you copy is the drawing rather than a megabyte of
+base64 for the reference image you fed in.
+
+That object is the shape [`initialData`](/initial-data) takes, and the shape
+the component's `welcomeScene` prop takes. So the loop is: upload a reference,
+trace it, copy the JSON, and paste it in as the scene your own canvas opens
+with.
+
 ### Overview
 
 [AI agent](/ai-agent) starts from a sentence. This page starts from a picture:

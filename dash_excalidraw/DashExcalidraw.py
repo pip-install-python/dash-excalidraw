@@ -26,10 +26,7 @@ ComponentType = typing.Union[
 
 class DashExcalidraw(Component):
     """A DashExcalidraw component.
-DashExcalidraw is an Excalidraw drawing canvas bound to Dash via a
-JSON-safe prop surface. See the per-prop docs above for the full
-catalog; see the README for the command/event round-trip pattern used
-for imperative actions like exports.
+
 
 Keyword arguments:
 
@@ -255,8 +252,12 @@ Keyword arguments:
     @,default,50.
 
 - sceneVersion (number; optional):
-    Monotonic scene version from `excalidrawAPI.getSceneVersion()`.
-    Useful for change detection without diffing element arrays.
+    Monotonic scene version, from the package's
+    `getSceneVersion(elements)` export. Useful for change detection
+    without diffing element arrays.  It tracks ELEMENTS only.
+    Registering a file, panning or zooming leaves it unchanged, so a
+    callback that must see those should take `files` or `appState` as
+    its Input rather than this.
 
 - scrollThrottleMs (number; optional):
     Debounce interval for `lastScrollChange` writes (milliseconds).
@@ -280,6 +281,38 @@ Keyword arguments:
     View-only mode: disables drawing tools; pan/zoom still available.
     @,default,False.
 
+- welcomeScene (dict with strings as keys and values of type boolean | number | string | dict | list; optional):
+    A scene to open with when `initialData` is not given: `{elements,
+    appState, files}`, the same shape `initialData` and
+    `externalizedSerializedData` use, so a scene produced anywhere in
+    this library can be pasted straight in.  MOUNT-ONLY, like
+    `initialData` — Excalidraw owns the scene afterwards. Dispatch
+    `updateScene` to change it later.
+
+- welcomeScreen (boolean; optional):
+    Show Excalidraw's welcome overlay on an empty canvas.  REACTIVE,
+    unlike `UIOptions.welcomeScreen`. The vendor reads that key once
+    while the canvas is mounting, so a switch wired to it appears to
+    do nothing — which is exactly how it read.  This works by
+    composing Excalidraw's `<WelcomeScreen>` as a CHILD, which React
+    mounts and unmounts with the prop. MEASURED, because the obvious
+    alternative looks right and is not: `appState.showWelcomeScreen`
+    exists, but `updateScene({appState: {showWelcomeScreen: False}})`
+    leaves it `True` — the vendor filters that key out of the merge,
+    silently. Do not \"fix\" this back to an appState push.
+
+- welcomeScreenContent (dict; optional):
+    Words for the welcome overlay: `{title, subtitle}`. Either may be
+    omitted. Supplying neither keeps Excalidraw's own wording.  Only
+    the TEXT is yours — the overlay's menu hints stay the vendor's, so
+    they cannot drift out of step with the menu they describe.
+
+    `welcomeScreenContent` is a dict with keys:
+
+    - title (string; optional)
+
+    - subtitle (string; optional)
+
 - width (string; optional):
     CSS width of the canvas container. @,default,\"100%\".
 
@@ -290,6 +323,13 @@ Keyword arguments:
     _base_nodes = ['children']
     _namespace = 'dash_excalidraw'
     _type = 'DashExcalidraw'
+    WelcomeScreenContent = TypedDict(
+        "WelcomeScreenContent",
+            {
+            "title": NotRequired[str],
+            "subtitle": NotRequired[str]
+        }
+    )
 
 
     def __init__(
@@ -302,6 +342,9 @@ Keyword arguments:
         files: typing.Optional[typing.Optional[typing.Dict[str, typing.Any]]] = None,
         serializedData: typing.Optional[str] = None,
         externalizedSerializedData: typing.Optional[str] = None,
+        welcomeScreen: typing.Optional[bool] = None,
+        welcomeScreenContent: typing.Optional["WelcomeScreenContent"] = None,
+        welcomeScene: typing.Optional[typing.Dict[typing.Union[str, float, int], typing.Any]] = None,
         sceneVersion: typing.Optional[NumberType] = None,
         lastFileAdded: typing.Optional[typing.Optional[typing.Dict[str, typing.Any]]] = None,
         lastExternalDrop: typing.Optional[typing.Optional[typing.Dict[str, typing.Any]]] = None,
@@ -336,9 +379,9 @@ Keyword arguments:
         id: typing.Optional[typing.Union[str, dict]] = None,
         **kwargs
     ):
-        self._prop_names = ['id', 'UIOptions', 'appState', 'autoFocus', 'command', 'detectScroll', 'docsLinkLabel', 'docsLinkUrl', 'elements', 'externalizedSerializedData', 'files', 'gridModeEnabled', 'handleKeyboardGlobally', 'height', 'hideExcalidrawLinks', 'initialData', 'interceptLinkOpens', 'isCollaborating', 'langCode', 'lastExport', 'lastExternalDrop', 'lastFileAdded', 'lastLibraryChange', 'lastLinkOpen', 'lastPaste', 'lastPointerDown', 'lastPointerMove', 'lastPointerUp', 'lastScrollChange', 'libraryReturnUrl', 'name', 'pointerMoveThrottleMs', 'sceneVersion', 'scrollThrottleMs', 'serializedData', 'theme', 'validateEmbeddable', 'viewModeEnabled', 'width', 'zenModeEnabled']
+        self._prop_names = ['id', 'UIOptions', 'appState', 'autoFocus', 'command', 'detectScroll', 'docsLinkLabel', 'docsLinkUrl', 'elements', 'externalizedSerializedData', 'files', 'gridModeEnabled', 'handleKeyboardGlobally', 'height', 'hideExcalidrawLinks', 'initialData', 'interceptLinkOpens', 'isCollaborating', 'langCode', 'lastExport', 'lastExternalDrop', 'lastFileAdded', 'lastLibraryChange', 'lastLinkOpen', 'lastPaste', 'lastPointerDown', 'lastPointerMove', 'lastPointerUp', 'lastScrollChange', 'libraryReturnUrl', 'name', 'pointerMoveThrottleMs', 'sceneVersion', 'scrollThrottleMs', 'serializedData', 'theme', 'validateEmbeddable', 'viewModeEnabled', 'welcomeScene', 'welcomeScreen', 'welcomeScreenContent', 'width', 'zenModeEnabled']
         self._valid_wildcard_attributes =            []
-        self.available_properties = ['id', 'UIOptions', 'appState', 'autoFocus', 'command', 'detectScroll', 'docsLinkLabel', 'docsLinkUrl', 'elements', 'externalizedSerializedData', 'files', 'gridModeEnabled', 'handleKeyboardGlobally', 'height', 'hideExcalidrawLinks', 'initialData', 'interceptLinkOpens', 'isCollaborating', 'langCode', 'lastExport', 'lastExternalDrop', 'lastFileAdded', 'lastLibraryChange', 'lastLinkOpen', 'lastPaste', 'lastPointerDown', 'lastPointerMove', 'lastPointerUp', 'lastScrollChange', 'libraryReturnUrl', 'name', 'pointerMoveThrottleMs', 'sceneVersion', 'scrollThrottleMs', 'serializedData', 'theme', 'validateEmbeddable', 'viewModeEnabled', 'width', 'zenModeEnabled']
+        self.available_properties = ['id', 'UIOptions', 'appState', 'autoFocus', 'command', 'detectScroll', 'docsLinkLabel', 'docsLinkUrl', 'elements', 'externalizedSerializedData', 'files', 'gridModeEnabled', 'handleKeyboardGlobally', 'height', 'hideExcalidrawLinks', 'initialData', 'interceptLinkOpens', 'isCollaborating', 'langCode', 'lastExport', 'lastExternalDrop', 'lastFileAdded', 'lastLibraryChange', 'lastLinkOpen', 'lastPaste', 'lastPointerDown', 'lastPointerMove', 'lastPointerUp', 'lastScrollChange', 'libraryReturnUrl', 'name', 'pointerMoveThrottleMs', 'sceneVersion', 'scrollThrottleMs', 'serializedData', 'theme', 'validateEmbeddable', 'viewModeEnabled', 'welcomeScene', 'welcomeScreen', 'welcomeScreenContent', 'width', 'zenModeEnabled']
         self.available_wildcard_properties =            []
         _explicit_args = kwargs.pop('_explicit_args')
         _locals = locals()

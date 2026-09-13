@@ -299,6 +299,12 @@ def _readout(scene_version, files, app_state):
             "appState.scrollY": state.get("scrollY"),
             "appState.viewBackgroundColor": state.get("viewBackgroundColor"),
             "appState.activeTool": (state.get("activeTool") or {}).get("type"),
+            # The `name` prop lands here. Without this row the page offered a
+            # control for `name` and no way to observe it — its only other
+            # surface is the export dialog's filename, which you have to open
+            # a modal to see. A demo you cannot watch is indistinguishable
+            # from one that does not work.
+            "appState.name (the `name` prop)": state.get("name"),
         },
         height=200,
     )
