@@ -1597,26 +1597,72 @@ const DashExcalidraw = (props: Props) => {
                         await api.updateLibrary(payload || {});
                         break;
                     case 'replaceFiles': {
-                        // payload: { [fileId]: { dataURL: string, mimeType?: string } }
-                        // `api.addFiles` with matching ids does an in-place
-                        // overwrite, which makes the old base64 string
-                        // unreferenced and collectible by the GC.
+                        /* payload: { [fileId]: { dataURL, mimeType? } }
+                         *
+                         * MEASURED IN THE BROWSER, because the obvious
+                         * implementation is a silent no-op: `api.addFiles`
+                         * with an id the store ALREADY holds does nothing at
+                         * all. Add id `x` with an inline dataURL, add `x`
+                         * again with an external URL, read `getFiles()` — it
+                         * is still the inline one. There is no removeFiles,
+                         * and `updateScene({files})` is ignored too; the whole
+                         * imperative surface for files is addFiles/getFiles.
+                         *
+                         * So in-place replacement is not available, and this
+                         * command used to claim it: /file-uploads uploaded
+                         * every drop, dispatched replaceFiles, and the canvas
+                         * kept the base64 — which is why its GIF auto-embed
+                         * never fired. The page watches for a file whose
+                         * dataURL has become an external URL and there never
+                         * was one.
+                         *
+                         * What works: store the new bytes under a NEW id and
+                         * repoint the elements at it. The element ends up
+                         * referencing an entry whose dataURL is the external
+                         * URL, which is what every consumer actually wants.
+                         * The orphaned inline entry cannot be deleted (no
+                         * API), but nothing references it and
+                         * `externalizedSerializedData` strips it regardless.
+                         */
                         const entries = payload || {};
-                        const replacement = Object.entries(entries)
-                            .map(([fileId, info]: [string, any]) => {
-                                if (!info || typeof info.dataURL !== 'string') {
-                                    return null;
-                                }
-                                return {
-                                    id: fileId,
-                                    mimeType: info.mimeType || 'image/png',
-                                    dataURL: info.dataURL,
-                                    created: Date.now(),
-                                };
-                            })
-                            .filter(Boolean) as any[];
-                        if (replacement.length > 0) {
-                            api.addFiles(replacement);
+                        const remap: Record<string, string> = {};
+                        const additions: any[] = [];
+                        const stamp = Date.now();
+                        for (const [oldId, info] of Object.entries(
+                            entries as Record<string, any>,
+                        )) {
+                            if (!info || typeof info.dataURL !== 'string') {
+                                continue;
+                            }
+                            const newId = `${oldId}-ext-${stamp.toString(36)}`;
+                            remap[oldId] = newId;
+                            additions.push({
+                                id: newId,
+                                mimeType: info.mimeType || 'image/png',
+                                dataURL: info.dataURL,
+                                created: stamp,
+                            });
+                        }
+                        if (additions.length > 0) {
+                            api.addFiles(additions);
+                            const repointed = (api.getSceneElements() || []).map(
+                                (el: any) =>
+                                    el &&
+                                    el.type === 'image' &&
+                                    el.fileId &&
+                                    remap[el.fileId]
+                                        ? {...el, fileId: remap[el.fileId]}
+                                        : el,
+                            );
+                            api.updateScene({
+                                elements: repointed,
+                                captureUpdate: CaptureUpdateAction.NEVER,
+                            } as any);
+                            /* Report the store: swapping bytes touches no
+                             * element in a way Excalidraw reports, so without
+                             * this the `files` prop never mentions the new
+                             * entry and any callback watching it never runs. */
+                            writeProps({files: api.getFiles()});
                         }
                         break;
                     }

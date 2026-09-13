@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- **`replaceFiles` never replaced anything.** It was built on `api.addFiles`
+  overwriting an entry whose id already exists — measured in a browser, that
+  is a silent no-op, and there is no `removeFiles` and no `updateScene({files})`
+  either. So every `/file-uploads` drop uploaded correctly and the canvas kept
+  its base64, which is why the GIF auto-embed never produced an iframe: that
+  page waits for a file whose `dataURL` has become a URL and there never was
+  one. The command now stores the new bytes under a fresh id and repoints the
+  elements that referenced the old one, and reports the file store so callbacks
+  watching `files` actually fire.
+
 - **`resetScene` silently discarded every mode the props had asked for.** It
   restores Excalidraw's default appState, so a canvas mounted with
   `viewModeEnabled` (or zen/grid mode, a `name`, a `theme`) quietly came back

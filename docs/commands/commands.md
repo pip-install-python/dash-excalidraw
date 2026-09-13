@@ -26,7 +26,7 @@ re-fire.
 |:-------|:--------|:------|
 | `updateScene` | `{elements?, appState?, collaborators?, captureUpdate?}` | See history, below |
 | `addFiles` | A **list** of `{id, mimeType, dataURL, created}` | Raw passthrough |
-| `replaceFiles` | A **map** `{fileId: {dataURL, mimeType?}}` | Overwrites in place |
+| `replaceFiles` | A **map** `{fileId: {dataURL, mimeType?}}` | Stores the new bytes under a fresh id and repoints the elements |
 | `resetScene` | `{}` | |
 | `scrollToContent` | `{target?, opts?}` | |
 | `setActiveTool` | `{type: "selection"}`, `{type: "rectangle"}`, … | Defaults to `selection` |
@@ -37,11 +37,23 @@ re-fire.
 | `exportToBlob` | Export options, `{mimeType?}` | Replies on `lastExport` |
 | `exportToCanvas` | Export options, `{mimeType?}` | Replies on `lastExport` |
 
-`addFiles` and `replaceFiles` both end at Excalidraw's `addFiles`, but they
+`addFiles` and `replaceFiles` both reach Excalidraw's `addFiles`, but they
 are not interchangeable. Use `replaceFiles` to swap an existing file's bytes
 — it takes the id-keyed map, fills `created` and `mimeType` for you, and
 skips malformed entries; that is the shape [File uploads](/file-uploads)
-uses to trade base64 for URLs. Use `addFiles` only when you need the raw
+uses to trade base64 for URLs.
+
+**It does not overwrite, because Excalidraw cannot.** `api.addFiles` with an
+id the store already holds is a silent no-op — measured in a browser: add `x`
+inline, add `x` again with a URL, read `getFiles()`, and it is still the
+inline one. There is no `removeFiles`, and `updateScene({files})` is ignored.
+So `replaceFiles` stores the new bytes under a **new** id and repoints every
+element that referenced the old one. The orphaned entry cannot be deleted, but
+nothing references it and `externalizedSerializedData` strips it anyway.
+
+Until 2026-09-12 this command claimed the overwrite and silently did nothing,
+which is why /file-uploads' GIF auto-embed never fired: that page waits for a
+file whose `dataURL` has become a URL, and there never was one. Use `addFiles` only when you need the raw
 Excalidraw `BinaryFileData` list, including fields `replaceFiles` would
 drop. It is a straight passthrough, so the list you send is the list
 Excalidraw receives: **you supply `created` and `mimeType` yourself**, and an
