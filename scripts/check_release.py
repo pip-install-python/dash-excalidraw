@@ -95,6 +95,16 @@ def check_bundle_freshness(bundle: Path) -> None:
     Rebuilding and committing together puts both in the same commit, so equal
     timestamps are the healthy case — hence ``>=``, not ``>``.
     """
+    # Superseded when a build stamp exists: that answers the same question by
+    # content, and this proxy is wrong in a way no pathspec can fix (a
+    # comment-only edit leaves the bundle byte-identical, so its commit time
+    # never advances and this can never be cleared). Kept for trees built
+    # before stamps existed.
+    if (ROOT / PKG / "build_stamp.json").exists():
+        print(f"  SKIP  {'bundle newer than src/ts':<46} superseded by the "
+              f"build stamp")
+        return
+
     bundle_at = _last_commit(str(bundle.relative_to(ROOT)))
     src_at = _last_commit(*_BUNDLE_SOURCES)
 
@@ -120,6 +130,65 @@ def check_bundle_freshness(bundle: Path) -> None:
     check("bundle newer than src/ts", bundle_at >= src_at,
           "up to date" if bundle_at >= src_at else
           f"STALE — src/ts committed {src_at - bundle_at}s after the bundle; "
+          "run npm run build and commit the result")
+
+
+def check_build_stamp() -> None:
+    """Was the bundle built from the sources as they stand?
+
+    The timestamp check above is a proxy, and it fails in a way no pathspec
+    can fix: a COMMENT-ONLY edit to a bundled source produces a byte-identical
+    bundle, so git never records a change to it, so its last-commit time never
+    advances — and the check stays red with no rebuild able to clear it,
+    because a rebuild has nothing to commit.
+
+    This asks the real question instead. `npm run build` writes the hash of
+    the sources it consumed; this compares that to the sources now.
+    """
+    import hashlib
+    import json as _json
+
+    stamp_path = ROOT / PKG / "build_stamp.json"
+    if not stamp_path.exists():
+        print(f"  SKIP  {'bundle built from these sources':<46} no build stamp")
+        return
+
+    src = ROOT / "src" / "ts"
+    if not src.is_dir():
+        print(f"  SKIP  {'bundle built from these sources':<46} no src/ts")
+        return
+
+    digest = hashlib.sha256()
+    files = sorted(
+        p for p in src.rglob("*")
+        if p.is_file()
+        and p.suffix in (".ts", ".tsx", ".js", ".jsx")
+        and "__mocks__" not in p.parts
+        and ".test." not in p.name
+    )
+    for path in files:
+        digest.update(str(path.relative_to(ROOT)).encode())
+        digest.update(path.read_bytes())
+
+    # Same non-vacuity rule as the pathspec check above: a hash over nothing
+    # matches nothing meaningful, so say so rather than pass.
+    if not files:
+        check("bundle built from these sources", False,
+              "no bundle sources found — this check was about to pass on "
+              "nothing")
+        return
+
+    try:
+        stamped = _json.loads(stamp_path.read_text())["sources_sha256"]
+    except (ValueError, KeyError):
+        check("bundle built from these sources", False,
+              f"{stamp_path.name} is unreadable; run npm run build")
+        return
+
+    fresh = stamped == digest.hexdigest()
+    check("bundle built from these sources", fresh,
+          f"up to date ({len(files)} sources)" if fresh else
+          "STALE — src/ts has changed since the bundle was built; "
           "run npm run build and commit the result")
 
 
@@ -185,6 +254,7 @@ def main() -> int:
           else "MISSING — run npm run build")
     if bundle.exists():
         check_bundle_freshness(bundle)
+        check_build_stamp()
     generated = ROOT / PKG / "DashExcalidraw.py"
     check("generated component class present", generated.exists(),
           "DashExcalidraw.py" if generated.exists()

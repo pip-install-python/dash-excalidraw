@@ -12,8 +12,8 @@
   },
   "homepage": "https://github.com/pip-install-python/dash-excalidraw",
   "scripts": {
-    "build:js::dev": "webpack --mode development",
-    "build:js": "webpack",
+    "build:js::dev": "webpack --mode development && python scripts/write_build_stamp.py",
+    "build:js": "webpack && python scripts/write_build_stamp.py",
     "build:backends": "dash-generate-components ./src/ts/components dash_excalidraw -p package-info.json --ignore \\.test\\. -t dash_excalidraw.dash_prop_typing",
     "build": "npm run build:js && npm run build:backends",
     "test": "jest",
