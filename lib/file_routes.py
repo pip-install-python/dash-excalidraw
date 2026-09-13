@@ -45,14 +45,72 @@ def _viewer_body(mime: str, src: str) -> str:
 def register(app) -> bool:
     """Attach the blob routes to ``app``'s underlying server.
 
-    Returns True when they were attached. Only the Flask and Quart backends
-    expose the ``route`` decorator this uses; on FastAPI the demo degrades to
-    Excalidraw's own inline copies of the images, which is a visual no-op.
+    Returns the backend name it attached on, or False.
+
+    THIS MODULE WAS DEAD CODE until 2026-09-12: nothing imported it, so the
+    routes existed on no backend at all. MEASURED on the running app —
+    ``GET /excalidraw-files/nope`` answered 200 with the site's HTML, because
+    Dash's page router caught it. Every externalized upload therefore pointed
+    at the SPA shell rather than at its bytes, and /file-uploads' GIF
+    auto-embed loaded that shell into an iframe instead of an animation.
+
+    FastAPI is supported as well as Flask/Quart, because the local dev backend
+    here IS FastAPI. The old docstring said FastAPI "degrades to Excalidraw's
+    own inline copies, which is a visual no-op" — that was wrong twice over:
+    nothing registered these on Flask either, and the degradation is not a
+    no-op when a page's whole point is externalizing the bytes.
     """
     server = getattr(app, "server", None)
-    route = getattr(server, "route", None)
-    if route is None:
+    if server is None:
         return False
+
+    route = getattr(server, "route", None)
+    if route is not None and not _is_fastapi(server):
+        _register_wsgi(route)
+        return "flask"
+
+    if _is_fastapi(server):
+        _register_asgi(server)
+        return "fastapi"
+
+    return False
+
+
+def _is_fastapi(server) -> bool:
+    """FastAPI also exposes ``.route``, with different semantics.
+
+    Its decorator is ``add_api_route``-shaped and its path params use
+    ``{name}`` rather than ``<name>``, so handing it a Flask rule registers
+    a route nobody can reach. Sniff for a FastAPI-only attribute instead of
+    trusting ``route``.
+    """
+    return hasattr(server, "add_api_route") or hasattr(server, "openapi")
+
+
+def _register_asgi(server) -> None:
+    from fastapi import Response
+    from fastapi.responses import HTMLResponse
+
+    @server.get(f"{file_store.FILE_URL_PREFIX}/{{file_id}}")
+    def _serve_file_asgi(file_id: str):
+        entry = file_store.get(file_id)
+        if not entry:
+            # Expiry lands here too: a blob past its TTL is simply gone.
+            return Response(status_code=404)
+        mime, data = entry
+        return Response(content=data, media_type=mime)
+
+    @server.get(f"{file_store.FILE_URL_PREFIX}/{{file_id}}/viewer")
+    def _serve_viewer_asgi(file_id: str):
+        entry = file_store.get(file_id)
+        if not entry:
+            return Response(status_code=404)
+        mime, _ = entry
+        body = _viewer_body(mime, f"{file_store.FILE_URL_PREFIX}/{file_id}")
+        return HTMLResponse(_VIEWER_HTML.format(body=body))
+
+
+def _register_wsgi(route) -> None:
 
     @route(f"{file_store.FILE_URL_PREFIX}/<file_id>")
     def _serve_excalidraw_file(file_id: str):
@@ -85,5 +143,3 @@ def register(app) -> bool:
             200,
             {"Content-Type": "text/html; charset=utf-8"},
         )
-
-    return True

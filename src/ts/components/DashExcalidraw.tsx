@@ -1341,6 +1341,42 @@ const DashExcalidraw = (props: Props) => {
                             ...(payload || {}),
                         };
 
+                        /* ---- embeddable links must be ABSOLUTE ----------
+                         * An `embeddable` carries its src in `link`, and
+                         * Excalidraw parses that as a full URL. A Dash app
+                         * naturally produces app-relative ones — Flask's
+                         * url_for, a route prefix, `/excalidraw-files/<id>` —
+                         * and a relative link is DROPPED on restore: the
+                         * element survives, `link` does not, and the canvas
+                         * shows an empty box with no iframe and no error.
+                         * MEASURED on /file-uploads' GIF auto-embed, whose
+                         * whole point is that iframe.
+                         *
+                         * Resolved against the page's own origin, which is
+                         * where such a path was always going to point.
+                         */
+                        if (Array.isArray(scenePayload.elements)) {
+                            scenePayload.elements = scenePayload.elements.map(
+                                (el: any) => {
+                                    if (
+                                        !el ||
+                                        el.type !== 'embeddable' ||
+                                        typeof el.link !== 'string' ||
+                                        !el.link.startsWith('/')
+                                    ) {
+                                        return el;
+                                    }
+                                    return {
+                                        ...el,
+                                        link: new URL(
+                                            el.link,
+                                            window.location.origin,
+                                        ).href,
+                                    };
+                                },
+                            );
+                        }
+
                         /* ---- history semantics -------------------------
                          * 0.17 left history untouched when no flag was
                          * given. 0.18 defaults to EVENTUALLY, which folds
@@ -1446,10 +1482,41 @@ const DashExcalidraw = (props: Props) => {
                             scenePayload.elements.length > 0
                         ) {
                             try {
-                                scenePayload.elements = restoreElements(
-                                    scenePayload.elements as any,
-                                    null,
-                                ) as any;
+                                /* `restoreElements` DISCARDS the `link` of an
+                                 * embeddable. It has no access to this
+                                 * component's `validateEmbeddable` prop, so it
+                                 * cannot know the URL is allowed and drops it
+                                 * — the element survives, its src does not,
+                                 * and the canvas draws an empty box with no
+                                 * iframe and nothing logged. MEASURED on
+                                 * /file-uploads: the scene kept a
+                                 * `type: "embeddable"` element with no `link`
+                                 * key at all.
+                                 *
+                                 * The restore is still wanted (text baselines,
+                                 * autoResize, version ids — without it
+                                 * generated text renders invisibly), so put
+                                 * the links back rather than skip it. */
+                                const linksById = new Map<string, string>();
+                                for (const el of scenePayload.elements as any[]) {
+                                    if (
+                                        el &&
+                                        el.type === 'embeddable' &&
+                                        typeof el.link === 'string' &&
+                                        el.link
+                                    ) {
+                                        linksById.set(el.id, el.link);
+                                    }
+                                }
+                                scenePayload.elements = (
+                                    restoreElements(
+                                        scenePayload.elements as any,
+                                        null,
+                                    ) as any[]
+                                ).map((el: any) => {
+                                    const link = linksById.get(el?.id);
+                                    return link && !el.link ? {...el, link} : el;
+                                }) as any;
                             } catch (_err) {
                                 // Fall through with raw elements if the
                                 // restorer refuses — better a degraded

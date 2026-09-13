@@ -291,6 +291,8 @@ if MCP_ENABLED:
 # generation callback as a background one. See lib/background.py for why that
 # page must not occupy a request worker.
 from lib import background as _background  # noqa: E402
+from lib import file_routes as _file_routes  # noqa: E402
+from lib import file_store as _file_store  # noqa: E402
 
 _BACKGROUND_MANAGER = _background.manager()
 
@@ -312,6 +314,24 @@ if MCP_KWARGS:
     print(
         f"[boilerplate] Dash MCP server enabled at /{MCP_PATH.lstrip('/')} "
         f"(dash {dash.__version__})."
+    )
+
+# Blob routes for /file-uploads. These serve the bytes that page externalizes
+# out of the canvas, plus the tiny HTML viewer an `embeddable` GIF is framed
+# in. They were never registered at all until 2026-09-12 — the module existed
+# and nothing imported it — so every externalized upload pointed at a URL that
+# Dash's page router answered with the site's own HTML.
+_file_routes_backend = _file_routes.register(app)
+if _file_routes_backend:
+    print(
+        f"[boilerplate/excalidraw] /file-uploads blob routes mounted at "
+        f"{_file_store.FILE_URL_PREFIX} ({_file_routes_backend})."
+    )
+else:
+    print(
+        "[boilerplate/excalidraw] WARNING: /file-uploads blob routes NOT "
+        "mounted — externalized uploads will 404 and the GIF auto-embed "
+        "cannot work. Unrecognised backend."
     )
 
 # dash-clerk-auth splits its setup either side of Dash(...): sessions, the
