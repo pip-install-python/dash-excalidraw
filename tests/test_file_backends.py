@@ -131,3 +131,57 @@ class TestTheStoreNeverReEncodes:
         b = file_backends.backend()
         b.put("blob", "application/octet-stream", raw)
         assert b.get("blob")[1] == raw
+
+
+class TestAnOverCapUploadIsAnswered:
+    """A cap is a policy, so it gets an answer rather than a traceback.
+
+    MEASURED before this: dropping a 5.17 MB GIF against the 5 MB per-file cap
+    let `FileTooLarge` leave the callback — HTTP 500 in the log, a placeholder
+    on the canvas that never resolved, and nothing on the page saying why.
+    """
+
+    def test_the_store_refuses_rather_than_truncating(self):
+        cap = file_store.MAX_ENTRY_BYTES
+        with pytest.raises(file_store.FileTooLarge) as exc:
+            file_backends.backend().put("big", "image/gif", b"x" * (cap + 1))
+        # The message has to name the knob, or the only way to raise the cap
+        # is to read the source.
+        assert "EXCALIDRAW_FILE_MAX_ENTRY_BYTES" in str(exc.value)
+
+    def test_the_page_catches_it(self):
+        from pathlib import Path
+
+        src = (
+            Path(__file__).resolve().parent.parent
+            / "docs/file-uploads/file_uploads.py"
+        ).read_text(encoding="utf-8")
+        # Both upload paths — the image one and the everything-else one.
+        assert src.count("except _file_store.FileTooLarge") == 2
+        assert '"status": "too large"' in src
+
+
+class TestTheGifIsIdentifiedByItsBytes:
+    """The browser's MIME type is not trustworthy on a drag.
+
+    MEASURED: a GIF dragged with an empty `type` was stored as `.bin` with
+    mime application/octet-stream, so the page could not tell it was a GIF and
+    never built the embed. The component sniffs the magic bytes and rewrites
+    the dataURL prefix, so Python sees `image/gif` whatever the drag claimed.
+    """
+
+    def test_the_component_sniffs_rather_than_trusting_type(self):
+        from pathlib import Path
+
+        tsx = (
+            Path(__file__).resolve().parent.parent
+            / "src/ts/components/DashExcalidraw.tsx"
+        ).read_text(encoding="utf-8")
+        assert "gifSizeFromHeader" in tsx
+        # And it must not go back to decoding the file to learn its size.
+        body_start = tsx.index("const handleDropCapture")
+        body = tsx[body_start : body_start + 6000]
+        assert "getImageDimensions(item.dataURL)" not in body, (
+            "the drop path decodes the GIF again — that is the main-thread "
+            "stall this interception exists to avoid"
+        )

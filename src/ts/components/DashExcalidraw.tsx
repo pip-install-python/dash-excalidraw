@@ -509,6 +509,35 @@ async function hashString(input: string): Promise<string> {
 
 /** Load an image dataURL and report naturalWidth/Height; defaults to
  * 320x240 on failure so the placement still makes visual sense. */
+/** A GIF's size, read from its header — 10 bytes, no decode.
+ *
+ * `getImageDimensions` below works by setting `Image.src`, which DECODES the
+ * file. On a 5 MB animated GIF that is the very main-thread stall this whole
+ * interception exists to avoid, and reaching for it here reintroduced the
+ * freeze inside the fix for it.
+ *
+ * The logical screen size lives at bytes 6..9 of every GIF87a/GIF89a, as two
+ * little-endian uint16s, immediately after the 6-byte signature. Returns null
+ * for anything that is not a GIF, so the caller can fall back.
+ */
+function gifSizeFromHeader(
+    dataUrl: string,
+): {width: number; height: number} | null {
+    try {
+        const comma = dataUrl.indexOf(',');
+        if (comma === -1) return null;
+        // Only the first 16 bytes are needed: 24 base64 chars cover them.
+        const head = atob(dataUrl.slice(comma + 1, comma + 25));
+        if (head.slice(0, 3) !== 'GIF') return null;
+        const width = head.charCodeAt(6) | (head.charCodeAt(7) << 8);
+        const height = head.charCodeAt(8) | (head.charCodeAt(9) << 8);
+        if (!width || !height) return null;
+        return {width, height};
+    } catch (_err) {
+        return null;
+    }
+}
+
 function getImageDimensions(
     dataUrl: string,
 ): Promise<{width: number; height: number}> {
@@ -1198,8 +1227,16 @@ const DashExcalidraw = (props: Props) => {
              * pointing at storage, in /file-uploads' case. Excalidraw never
              * sees it as an image and never decodes it.
              */
+            /* Type OR extension. A drag from a file manager usually sets
+             * `type`, but a drag out of another browser window, some Linux
+             * desktops, and anything re-wrapped by an OS share sheet can hand
+             * over an empty string — and a GIF that misses this check goes
+             * straight back to Excalidraw to be rasterised, which is the
+             * failure this is guarding. The magic bytes are checked later,
+             * where they are already in hand. */
             const isAnimatable = (f: File) =>
-                (f.type || '').toLowerCase() === 'image/gif';
+                (f.type || '').toLowerCase() === 'image/gif' ||
+                /\.gif$/i.test(f.name || '');
             const singleImage =
                 files.length === 1 &&
                 (files[0].type || '').startsWith('image/') &&
@@ -1209,6 +1246,17 @@ const DashExcalidraw = (props: Props) => {
             // We're taking the drop. Prevent native drop + stop Excalidraw.
             e.preventDefault();
             e.stopPropagation();
+
+            if (files.some(isAnimatable)) {
+                // Visible confirmation that the GIF path is live. Without it,
+                // "the fix is not working" and "the browser is running an old
+                // bundle" look identical from the outside.
+                // eslint-disable-next-line no-console
+                console.info(
+                    '[dash-excalidraw] GIF drop intercepted — original bytes ' +
+                    'kept, Excalidraw will not rasterise it.',
+                );
+            }
 
             const currentApi = apiRef.current;
             if (!currentApi) return;
@@ -1226,18 +1274,42 @@ const DashExcalidraw = (props: Props) => {
 
             // Read all files in parallel.
             const loaded = await Promise.all(
-                files.map(async (f) => ({
-                    file: f,
-                    name: f.name,
-                    mimeType: f.type || 'application/octet-stream',
-                    size: f.size,
-                    dataURL: await fileToDataURL(f),
-                    // A GIF is deliberately NOT an "image" for placement: it
-                    // goes down the payload path so its bytes survive.
-                    isImage:
-                        (f.type || '').startsWith('image/') && !isAnimatable(f),
-                    isAnimatable: isAnimatable(f),
-                })),
+                files.map(async (f) => {
+                    const dataURL = await fileToDataURL(f);
+                    /* SNIFF, DO NOT TRUST. A drag can arrive with `type`
+                     * empty — measured: a GIF dropped that way was stored as
+                     * `.bin` with mime application/octet-stream, so Python
+                     * could not tell it was a GIF and never made the embed.
+                     * The magic bytes are already in hand here, and they are
+                     * the only thing that actually knows.
+                     *
+                     * The dataURL's own prefix is rewritten too, because
+                     * Python reads the mime back out of it. */
+                    const gifSize = gifSizeFromHeader(dataURL);
+                    const sniffed = gifSize ? 'image/gif' : '';
+                    const mimeType =
+                        sniffed || f.type || 'application/octet-stream';
+                    const corrected = sniffed
+                        ? `data:${sniffed};base64,${dataURL.slice(
+                              dataURL.indexOf(',') + 1,
+                          )}`
+                        : dataURL;
+                    return {
+                        file: f,
+                        name: f.name,
+                        mimeType,
+                        size: f.size,
+                        dataURL: corrected,
+                        naturalSize: gifSize,
+                        // A GIF is deliberately NOT an "image" for placement:
+                        // it goes down the payload path so its bytes survive.
+                        isImage:
+                            (f.type || '').startsWith('image/') &&
+                            !isAnimatable(f) &&
+                            !gifSize,
+                        isAnimatable: isAnimatable(f) || Boolean(gifSize),
+                    };
+                }),
             );
 
             const newFileEntries: any[] = [];
@@ -1284,14 +1356,10 @@ const DashExcalidraw = (props: Props) => {
                     /* A GIF's real dimensions travel with it. The app puts an
                      * embeddable where the placeholder was, and an iframe at
                      * the placeholder's size would letterbox the animation. */
-                    let naturalSize: {width: number; height: number} | null = null;
-                    if (item.isAnimatable) {
-                        try {
-                            naturalSize = await getImageDimensions(item.dataURL);
-                        } catch (_err) {
-                            naturalSize = null;
-                        }
-                    }
+                    // Read from the header when the bytes were sniffed,
+                    // never via getImageDimensions: that sets Image.src and
+                    // decodes the whole animation.
+                    const naturalSize = item.naturalSize;
                     nonImagePayload.push({
                         name: item.name,
                         mimeType: item.mimeType,

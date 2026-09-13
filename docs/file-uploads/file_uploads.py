@@ -133,11 +133,23 @@ def _uploads_table(uploads):
                         )
                     ),
                     dmc.TableTd(
-                        dmc.Badge(
-                            status,
-                            color="green" if status == "uploaded" else "yellow",
-                            variant="light",
-                            size="sm",
+                        dmc.Tooltip(
+                            label=info.get("detail") or status,
+                            disabled=not info.get("detail"),
+                            multiline=True,
+                            w=320,
+                            children=dmc.Badge(
+                                status,
+                                # Red for a refusal, not yellow: nothing was
+                                # stored and the URL column is empty, so this
+                                # is a failure rather than a slow step.
+                                color={
+                                    "uploaded": "green",
+                                    "too large": "red",
+                                }.get(status, "yellow"),
+                                variant="light",
+                                size="sm",
+                            ),
                         )
                     ),
                 ]
@@ -670,7 +682,24 @@ def _upload_and_swap(event, uploads):
             mime, raw = decode_data_url(f["dataURL"])
         except (ValueError, KeyError):
             continue
-        url = _file_backends.backend().put(f["fileId"], mime, raw)
+        try:
+            url = _file_backends.backend().put(f["fileId"], mime, raw)
+        except _file_store.FileTooLarge as exc:
+            # The store refuses a blob over its per-file cap, and that refusal
+            # used to leave the callback: HTTP 500, a placeholder that never
+            # resolved, and nothing on the page saying why. MEASURED with a
+            # 5.17 MB GIF against the 5 MB default. A cap is a policy, so it
+            # gets an answer, not a traceback.
+            uploads[f["fileId"]] = {
+                "url": "",
+                "size": f.get("size", len(raw)),
+                "mimeType": mime,
+                "name": f.get("fileId"),
+                "kind": "gif" if mime == "image/gif" else "image",
+                "status": "too large",
+                "detail": str(exc),
+            }
+            continue
         uploads[f["fileId"]] = {
             "url": url,
             "size": f.get("size", len(raw)),
@@ -811,7 +840,19 @@ def _handle_external_drop(event, elements, uploads):
         # and customData.external.fileId. Keeps the drawer lookup honest.
         guessed_ext = mimetypes.guess_extension(mime) or ""
         store_key = f"ext-{uuid.uuid4().hex[:12]}{guessed_ext}"
-        url = _file_backends.backend().put(store_key, mime, raw)
+        try:
+            url = _file_backends.backend().put(store_key, mime, raw)
+        except _file_store.FileTooLarge as exc:
+            uploads[store_key] = {
+                "url": "",
+                "size": f.get("size", len(raw)),
+                "mimeType": mime,
+                "name": f.get("name") or store_key,
+                "kind": "file",
+                "status": "too large",
+                "detail": str(exc),
+            }
+            continue
         uploads[store_key] = {
             "url": url,
             "size": f.get("size", len(raw)),

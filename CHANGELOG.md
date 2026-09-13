@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- **A GIF is identified by its bytes, not by the drag's MIME type.** A drag can
+  arrive with `type` empty — measured, such a GIF was stored as `.bin` with
+  mime `application/octet-stream`, so the page could not tell it was a GIF and
+  never built the embed. The component sniffs the GIF magic, rewrites the
+  dataURL prefix, and reads the size from the 10-byte header instead of
+  decoding the file (which was reintroducing the very main-thread stall the
+  interception exists to avoid).
+
+- **An upload over the per-file cap is answered, not crashed.** `FileTooLarge`
+  used to leave the callback: HTTP 500, a placeholder on the canvas that never
+  resolved, and nothing saying why. The upload table now shows `too large` in
+  red with the limit and the env var that raises it.
+
 - **Animated GIFs survive the drop, and no longer freeze the tab.** Excalidraw
   rasterises a dropped GIF to a single still frame before anything downstream
   sees it — measured, a 123,069-byte 12-frame GIF89a arrived as a 2,820-byte
