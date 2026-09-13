@@ -1471,9 +1471,32 @@ const DashExcalidraw = (props: Props) => {
                          * the thing it just dispatched. */
                         writeProps({files: api.getFiles()});
                         break;
-                    case 'resetScene':
+                    case 'resetScene': {
                         api.resetScene(payload || {});
+                        /* `resetScene` restores Excalidraw's DEFAULT appState,
+                         * which silently discards every mode this component
+                         * controls. MEASURED on a `viewModeEnabled` canvas: 1
+                         * toolbar button before, 17 after — the canvas became
+                         * editable with nothing said, and then snapped back to
+                         * view-only on the next React re-render, stranding
+                         * whatever had been drawn in the meantime. /trace-image
+                         * resets the scene at the start of every trace, so this
+                         * happened on the ordinary path, not an edge case.
+                         *
+                         * Re-assert what the props say. Excalidraw is the owner
+                         * of the scene, but these flags are ours. */
+                        api.updateScene({
+                            appState: {
+                                viewModeEnabled,
+                                zenModeEnabled,
+                                gridModeEnabled,
+                                ...(name !== undefined ? {name} : {}),
+                                ...(theme !== undefined ? {theme} : {}),
+                            },
+                            captureUpdate: CaptureUpdateAction.NEVER,
+                        } as any);
                         break;
+                    }
                     case 'scrollToContent':
                         api.scrollToContent(payload?.target, payload?.opts);
                         break;

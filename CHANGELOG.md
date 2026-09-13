@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- **`resetScene` silently discarded every mode the props had asked for.** It
+  restores Excalidraw's default appState, so a canvas mounted with
+  `viewModeEnabled` (or zen/grid mode, a `name`, a `theme`) quietly came back
+  editable — measured as 1 toolbar button before the reset and 17 after — and
+  then snapped back on the next React re-render, stranding anything drawn in
+  between. `/trace-image` resets the scene at the start of every trace, so this
+  was the ordinary path. The command now re-asserts what the props say.
+
+- **`/trace-image`'s canvas is editable.** It was view-only, on the theory that
+  a specimen being compared should not change under a stray click. Now that the
+  scene JSON below it is copyable, tidying the trace before taking it away is
+  the point.
+
 - **`sceneVersion` was never computed.** `getSceneVersion` is a standalone
   export of `@excalidraw/excalidraw`, not a method on the imperative API; the
   component called it as a method behind a `typeof === "function"` guard, so it

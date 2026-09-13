@@ -272,11 +272,25 @@ component = dmc.Stack(
                                 DashExcalidraw(
                                     id="trace-canvas",
                                     height="520px",
-                                    # View mode: this is a specimen to compare
-                                    # against the reference, not a canvas to
-                                    # edit — and a stray click should not
-                                    # change what you are comparing.
-                                    viewModeEnabled=True,
+                                    # EDITABLE, and this is a reversal. It was
+                                    # view-only on the theory that a specimen
+                                    # you are comparing should not change under
+                                    # a stray click. In practice the first
+                                    # thing anyone does with a trace is tidy it
+                                    # — and now that the scene JSON below is
+                                    # copyable, the tidying is the point: fix
+                                    # the trace up, then take it away as a
+                                    # `welcomeScene` or `initialData`.
+                                    #
+                                    # It also could not honestly stay view-only
+                                    # by accident. `resetScene` used to discard
+                                    # the mode, so every trace silently made
+                                    # this canvas editable and the next render
+                                    # snapped it back, stranding whatever had
+                                    # been drawn. That is fixed in the
+                                    # component; this is the deliberate choice
+                                    # the fix forced someone to make.
+                                    viewModeEnabled=False,
                                 ),
                                 min_height=520,
                             ),

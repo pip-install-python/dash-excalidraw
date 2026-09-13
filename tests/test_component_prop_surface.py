@@ -151,3 +151,43 @@ class TestSceneVersionComesFromThePackage:
         # store itself, or Python cannot tell success from failure.
         tsx = _tsx_code()
         assert "writeProps({files: api.getFiles()})" in tsx
+
+
+class TestResetSceneKeepsTheModesThePropsAskedFor:
+    """`resetScene` restores Excalidraw's DEFAULT appState.
+
+    That discards every mode this component controls, silently. MEASURED on a
+    `viewModeEnabled` canvas: 1 toolbar button before the reset, 17 after —
+    the canvas became editable with nothing said, then snapped back to
+    view-only on the next React re-render, stranding whatever had been drawn
+    in between. /trace-image resets the scene at the start of every trace, so
+    this was the ordinary path and not an edge case.
+
+    The inverse matters just as much and is checked in the browser rather than
+    here: an EDITABLE canvas must stay editable across a reset (measured,
+    13 toolbar buttons before and after on /commands). A fix that forced view
+    mode on would pass a one-sided test and break every other page.
+    """
+
+    def test_the_reset_reasserts_the_controlled_modes(self):
+        tsx = _tsx_code()
+        start = tsx.index("case 'resetScene'")
+        # The NEXT case, not this one — searching from `start` finds the case
+        # we are standing on and slices an empty string, which then "passes"
+        # every `in` check by never running one. (It failed loudly here only
+        # because the assertions are `in`, not `not in`.)
+        nxt = tsx.find("case '", start + len("case 'resetScene'"))
+        reset = tsx[start : nxt if nxt != -1 else start + 1500]
+        assert len(reset) > 200, "sliced no resetScene body — the test would be vacuous"
+        for mode in ("viewModeEnabled", "zenModeEnabled", "gridModeEnabled"):
+            assert mode in reset, (
+                f"{mode} is not re-applied after resetScene; a canvas that was "
+                f"put in that mode by a prop quietly leaves it on reset"
+            )
+
+    def test_it_does_not_simply_force_view_mode_on(self):
+        # Non-vacuity, and the failure that would be worse than the bug: the
+        # re-assert has to pass the PROP through, not a literal.
+        tsx = _tsx_code()
+        assert "viewModeEnabled: true" not in tsx
+        assert "viewModeEnabled: false" not in tsx
