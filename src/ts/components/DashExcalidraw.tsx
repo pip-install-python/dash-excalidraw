@@ -6,6 +6,7 @@ import {
     exportToBlob,
     exportToCanvas,
     exportToSvg,
+    getSceneVersion,
     restoreElements,
     serializeAsJSON,
 } from '@excalidraw/excalidraw';
@@ -146,8 +147,12 @@ type Props = {
     externalizedSerializedData?: string;
 
     /**
-     * Monotonic scene version from `excalidrawAPI.getSceneVersion()`.
-     * Useful for change detection without diffing element arrays.
+     * Monotonic scene version, from the package's `getSceneVersion(elements)`
+     * export. Useful for change detection without diffing element arrays.
+     *
+     * It tracks ELEMENTS only. Registering a file, panning or zooming leaves
+     * it unchanged, so a callback that must see those should take `files` or
+     * `appState` as its Input rather than this.
      */
     sceneVersion?: number;
 
@@ -901,10 +906,21 @@ const DashExcalidraw = (props: Props) => {
                 serialized = undefined;
             }
             const externalized = stripInlineFileUrls(serialized);
-            const sceneVersion =
-                typeof apiRef.current?.getSceneVersion === 'function'
-                    ? apiRef.current.getSceneVersion()
-                    : undefined;
+            /* `getSceneVersion` is a STANDALONE EXPORT of the package that
+             * takes the elements — it is NOT a method on the imperative API.
+             * This read used to be `apiRef.current?.getSceneVersion()` behind a
+             * `typeof === 'function'` guard, so it was always undefined and the
+             * guard made that silent: `sceneVersion` never once reached Python,
+             * and any callback with it as an Input never fired. /coverage's
+             * whole read-only panel is such a callback, which is why its
+             * appState, its file ids and its scene version all sat at null
+             * however much you drew — three symptoms, this one cause. */
+            let sceneVersion: number | undefined;
+            try {
+                sceneVersion = getSceneVersion(elements as any);
+            } catch (_err) {
+                sceneVersion = undefined;
+            }
 
             // Detect new files with inline base64 that still need uploading.
             // Only the first such file becomes `lastFileAdded` per change;
@@ -1356,6 +1372,15 @@ const DashExcalidraw = (props: Props) => {
                     }
                     case 'addFiles':
                         api.addFiles(payload || []);
+                        /* `addFiles` registers bytes WITHOUT touching any
+                         * element, so Excalidraw fires no onChange for it and
+                         * the `files` prop would never mention the file that
+                         * was just added. The command worked and Python could
+                         * not tell — which is indistinguishable from it having
+                         * failed, and is exactly how it was read. Push the
+                         * store ourselves so a caller can see the result of
+                         * the thing it just dispatched. */
+                        writeProps({files: api.getFiles()});
                         break;
                     case 'resetScene':
                         api.resetScene(payload || {});
@@ -1369,9 +1394,26 @@ const DashExcalidraw = (props: Props) => {
                     case 'setToast':
                         api.setToast(payload ?? null);
                         break;
-                    case 'toggleSidebar':
-                        api.toggleSidebar(payload || {});
+                    case 'toggleSidebar': {
+                        /* Returns FALSE when the named sidebar does not
+                         * exist, and that silence is how this bit two of our
+                         * own pages: `name` is the SIDEBAR ("default" for the
+                         * built-in one) while "library" and "search" are TABS
+                         * inside it, so `{name: "library"}` addressed nothing
+                         * and reported nothing. Say so rather than let a
+                         * dispatched command vanish. */
+                        const opened = api.toggleSidebar(payload || {});
+                        if (opened === false) {
+                            // eslint-disable-next-line no-console
+                            console.warn(
+                                '[dash-excalidraw] toggleSidebar did nothing: no sidebar named',
+                                JSON.stringify((payload || {}).name),
+                                '— the built-in sidebar is "default"; "library" and "search" are tabs',
+                                'within it, so pass {name: "default", tab: "library"}.',
+                            );
+                        }
                         break;
+                    }
                     case 'updateLibrary':
                         await api.updateLibrary(payload || {});
                         break;

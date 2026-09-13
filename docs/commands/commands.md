@@ -31,7 +31,7 @@ re-fire.
 | `scrollToContent` | `{target?, opts?}` | |
 | `setActiveTool` | `{type: "selection"}`, `{type: "rectangle"}`, … | Defaults to `selection` |
 | `setToast` | `{message, duration?}`, or `None` to clear | |
-| `toggleSidebar` | `{name, force?}` | |
+| `toggleSidebar` | `{name, tab?, force?}` | `name` is the sidebar — Excalidraw's built-in one is `"default"`; `"library"` and `"search"` are `tab`s inside it. Naming a tab as the sidebar does nothing at all. |
 | `updateLibrary` | `{libraryItems, merge?}` | |
 | `exportToSvg` | Export options | Replies on `lastExport` |
 | `exportToBlob` | Export options, `{mimeType?}` | Replies on `lastExport` |

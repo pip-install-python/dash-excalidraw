@@ -275,13 +275,19 @@ def _dispatch(_add, _export, _library):
     return no_update
 
 
+# Three INPUTS, not one input and two states, and the distinction is the whole
+# reason this panel looked dead. `sceneVersion` tracks ELEMENTS: registering a
+# file does not change it, and neither does panning or zooming. So with it as
+# the only Input, clicking addFiles updated nothing — the command had worked
+# and the panel simply never re-ran — and appState's zoom and scroll could
+# never appear at all, because a State is only read when some Input fires.
 @callback(
     Output("cov-readout", "children"),
     Input("coverage-canvas", "sceneVersion"),
-    State("coverage-canvas", "appState"),
-    State("coverage-canvas", "files"),
+    Input("coverage-canvas", "files"),
+    Input("coverage-canvas", "appState"),
 )
-def _readout(scene_version, app_state, files):
+def _readout(scene_version, files, app_state):
     state = app_state or {}
     return json_panel(
         "sceneVersion + appState (both read-only)",

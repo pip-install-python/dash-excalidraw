@@ -96,5 +96,11 @@ def _open_library(_clicks):
     return {
         "id": f"libopen-{uuid.uuid4()}",
         "type": "toggleSidebar",
-        "payload": {"name": "library", "force": True},
+        # `name` is the SIDEBAR, `tab` is the panel inside it. Excalidraw's
+        # built-in sidebar is called "default" and "library" is one of its
+        # tabs — so `{"name": "library"}` addresses a sidebar that does not
+        # exist, and `toggleSidebar` answers False and does nothing at all.
+        # That is what made this button look dead while the canvas's own
+        # library button opened the very same panel.
+        "payload": {"name": "default", "tab": "library", "force": True},
     }

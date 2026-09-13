@@ -147,5 +147,7 @@ def _dispatch(update_, reset_, scrollto_, rect_, arrow_, sel_, toast_, sidebar_)
             {"message": "Toast dispatched from Python!", "duration": 2500},
         )
     if trigger == "cmd-sidebar":
-        return _cmd("toggleSidebar", {"name": "library"})
+        # "default" is the sidebar; "library" is a tab within it. Naming
+        # the tab as the sidebar is a silent no-op — see docs/library.
+        return _cmd("toggleSidebar", {"name": "default", "tab": "library"})
     return no_update
