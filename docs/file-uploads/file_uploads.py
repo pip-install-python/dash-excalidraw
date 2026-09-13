@@ -155,7 +155,13 @@ def _uploads_table(uploads):
                 ]
             )
         )
-    return dmc.Table(
+    # SCROLLS SIDEWAYS. The url column holds a full storage path, and a
+    # backend whose URLs are a CDN's makes it longer still — the table was
+    # running past the card and clipping the status column, which is the one
+    # that says whether the upload actually worked.
+    return dmc.TableScrollContainer(
+        minWidth=560,
+        children=dmc.Table(
         highlightOnHover=True,
         withTableBorder=True,
         children=[
@@ -172,6 +178,7 @@ def _uploads_table(uploads):
             ),
             dmc.TableTbody(rows),
         ],
+        ),
     )
 
 

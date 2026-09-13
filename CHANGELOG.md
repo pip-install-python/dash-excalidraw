@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- **The toolbar's "insert image" now takes GIFs down the same path as a drop.**
+  Dropping worked and picking did not, which was not a second bug but a second
+  door: Excalidraw opens its picker with `browser-fs-access`, which uses
+  `window.showOpenFilePicker` where it exists (Chrome) and a hidden
+  `<input type="file">` otherwise — neither reaches the drop handler. Both are
+  intercepted, and a picked GIF is re-dispatched as a synthetic drop so it
+  reuses the proven path rather than a second copy of it. Non-GIF picks pass
+  through untouched.
+
+- **The upload activity table scrolls sideways** instead of running past its
+  card and clipping the status column — the one that says whether the upload
+  worked.
+
 - **A GIF is identified by its bytes, not by the drag's MIME type.** A drag can
   arrive with `type` empty — measured, such a GIF was stored as `.bin` with
   mime `application/octet-stream`, so the page could not tell it was a GIF and

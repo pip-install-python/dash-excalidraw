@@ -902,6 +902,9 @@ const DashExcalidraw = (props: Props) => {
     const [isMounted, setIsMounted] = useState(false);
     const [api, setApi] = useState<any>(null);
     const apiRef = useRef<any>(null);
+    // The wrapper element, so a file chosen through the toolbar picker can be
+    // re-dispatched onto it as a drop — see the "insert image" effect below.
+    const containerRef = useRef<HTMLDivElement | null>(null);
     const lastCommandIdRef = useRef<string | null>(null);
     const pointerMoveLastRef = useRef<number>(0);
     const scrollLastRef = useRef<number>(0);
@@ -1416,6 +1419,100 @@ const DashExcalidraw = (props: Props) => {
         [writeProps],
     );
 
+    /* --------- the toolbar's "insert image" button -------------------------
+     *
+     * A GIF DROPPED on the canvas takes the interception above and keeps its
+     * frames. The same GIF chosen through the toolbar's image tool did not,
+     * and that is not a second bug — it is a second DOOR. Excalidraw opens
+     * the picker with `fileOpen` from browser-fs-access, which uses
+     * `window.showOpenFilePicker` where it exists (Chrome) and falls back to
+     * a hidden `<input type="file">` elsewhere. Neither passes through the
+     * drop handler.
+     *
+     * So both doors are covered, and both lead to the same room: the chosen
+     * GIF is re-dispatched as a synthetic drop on this container, which runs
+     * the path that is already proven, rather than a second copy of it that
+     * could drift.
+     *
+     * Excalidraw is then told the user picked nothing — an AbortError is
+     * exactly what a cancelled picker throws, so it takes that quietly. Any
+     * non-GIF selection is passed straight through untouched.
+     */
+    useEffect(() => {
+        const isGif = (f: {name?: string; type?: string} | null | undefined) =>
+            Boolean(
+                f &&
+                    ((f.type || '').toLowerCase() === 'image/gif' ||
+                        /\.gif$/i.test(f.name || '')),
+            );
+
+        const redispatchAsDrop = (gifs: File[]) => {
+            const host = containerRef.current;
+            if (!host || gifs.length === 0) return;
+            const transfer = new DataTransfer();
+            for (const f of gifs) transfer.items.add(f);
+            const rect = host.getBoundingClientRect();
+            host.dispatchEvent(
+                new DragEvent('drop', {
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: rect.left + rect.width / 2,
+                    clientY: rect.top + rect.height / 2,
+                    dataTransfer: transfer,
+                }),
+            );
+        };
+
+        // --- door 1: the File System Access API (Chrome) ---
+        const realPicker = (window as any).showOpenFilePicker;
+        if (typeof realPicker === 'function') {
+            (window as any).showOpenFilePicker = async (...args: any[]) => {
+                const handles = await realPicker.apply(window, args);
+                let files: File[] = [];
+                try {
+                    files = await Promise.all(
+                        handles.map((h: any) => h.getFile()),
+                    );
+                } catch (_err) {
+                    return handles; // cannot inspect them; do not interfere
+                }
+                const gifs = files.filter(isGif);
+                if (gifs.length === 0) return handles;
+                redispatchAsDrop(gifs);
+                const rest = handles.filter(
+                    (_h: any, i: number) => !isGif(files[i]),
+                );
+                if (rest.length === 0) {
+                    throw new DOMException('aborted', 'AbortError');
+                }
+                return rest;
+            };
+        }
+
+        // --- door 2: the <input type="file"> fallback ---
+        const onChange = (event: Event) => {
+            const input = event.target as HTMLInputElement | null;
+            if (!input || input.type !== 'file' || !input.files) return;
+            const chosen = Array.from(input.files);
+            const gifs = chosen.filter(isGif);
+            if (gifs.length === 0) return;
+            // Capture phase: this runs before the library's own handler, so
+            // stopping it here is what prevents the rasterisation.
+            event.stopPropagation();
+            event.preventDefault();
+            input.value = '';
+            redispatchAsDrop(gifs);
+        };
+        document.addEventListener('change', onChange, true);
+
+        return () => {
+            if (typeof realPicker === 'function') {
+                (window as any).showOpenFilePicker = realPicker;
+            }
+            document.removeEventListener('change', onChange, true);
+        };
+    }, []);
+
     /* --------- command dispatch ------------------------------------------ */
     useEffect(() => {
         if (!command || !command.id) return;
@@ -1863,6 +1960,7 @@ const DashExcalidraw = (props: Props) => {
     return (
         <div
             id={id}
+            ref={containerRef}
             style={{width, height, position: 'relative'}}
             onDragOver={handleDragOver}
             onDropCapture={handleDropCapture}

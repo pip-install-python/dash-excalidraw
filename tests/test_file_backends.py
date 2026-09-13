@@ -185,3 +185,59 @@ class TestTheGifIsIdentifiedByItsBytes:
             "the drop path decodes the GIF again — that is the main-thread "
             "stall this interception exists to avoid"
         )
+
+
+class TestBothDoorsIntoTheCanvas:
+    """A dropped GIF and a picked GIF must reach the same place.
+
+    They did not. Dropping worked; the toolbar's "insert image" button did
+    not, and that is not a second bug but a second DOOR — Excalidraw opens its
+    picker with `fileOpen` from browser-fs-access, which uses
+    `window.showOpenFilePicker` where it exists (Chrome) and a hidden
+    `<input type="file">` otherwise. Neither goes through the drop handler.
+
+    Both are intercepted now, and both re-dispatch the chosen GIF as a
+    synthetic drop rather than repeating the ingest logic — a second copy
+    would drift from the first, and the drop path is the one with the
+    measurements behind it.
+    """
+
+    def _tsx(self) -> str:
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent
+            / "src/ts/components/DashExcalidraw.tsx"
+        ).read_text(encoding="utf-8")
+
+    def test_the_file_system_access_door_is_wrapped(self):
+        tsx = self._tsx()
+        assert "showOpenFilePicker" in tsx
+        # And restored on unmount — it is a global, and leaving a wrapper
+        # behind would outlive the component that installed it.
+        assert "window as any).showOpenFilePicker = realPicker" in tsx
+
+    def test_the_input_door_is_intercepted_in_the_capture_phase(self):
+        tsx = self._tsx()
+        assert "document.addEventListener('change', onChange, true)" in tsx, (
+            "a bubble-phase listener runs after the library has already read "
+            "the file, which is too late to stop the rasterisation"
+        )
+        assert "document.removeEventListener('change', onChange, true)" in tsx
+
+    def test_a_picked_gif_reuses_the_drop_path(self):
+        # Rather than a parallel ingest that could drift.
+        tsx = self._tsx()
+        assert "redispatchAsDrop" in tsx
+        assert "new DragEvent('drop'" in tsx
+
+    def test_a_non_gif_pick_is_left_alone(self):
+        """The failure that would be worse than the bug.
+
+        An interception that swallowed every file picker on the page would
+        break the ordinary image insert, and every other upload control in the
+        host app. Both doors return early when nothing selected is a GIF.
+        """
+        tsx = self._tsx()
+        assert "if (gifs.length === 0) return handles;" in tsx
+        assert "if (gifs.length === 0) return;" in tsx
