@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import io
 
-from lib import file_store
+from lib import file_backends, file_store
 
 # Wrapper served for Excalidraw `embeddable` elements. Pointing the iframe at
 # a raw GIF URL trips a Chromium same-URL frame-safety check; wrapping the
@@ -93,7 +93,11 @@ def _register_asgi(server) -> None:
 
     @server.get(f"{file_store.FILE_URL_PREFIX}/{{file_id}}")
     def _serve_file_asgi(file_id: str):
-        entry = file_store.get(file_id)
+        # Through the configured backend, so pointing the app at disk (or at
+        # your own) changes where these bytes come from without touching the
+        # route. A backend whose URLs are a CDN's returns None here and the
+        # browser never asks this route at all.
+        entry = file_backends.backend().get(file_id)
         if not entry:
             # Expiry lands here too: a blob past its TTL is simply gone.
             return Response(status_code=404)
@@ -102,7 +106,7 @@ def _register_asgi(server) -> None:
 
     @server.get(f"{file_store.FILE_URL_PREFIX}/{{file_id}}/viewer")
     def _serve_viewer_asgi(file_id: str):
-        entry = file_store.get(file_id)
+        entry = file_backends.backend().get(file_id)
         if not entry:
             return Response(status_code=404)
         mime, _ = entry
@@ -116,7 +120,7 @@ def _register_wsgi(route) -> None:
     def _serve_excalidraw_file(file_id: str):
         from flask import abort, send_file
 
-        entry = file_store.get(file_id)
+        entry = file_backends.backend().get(file_id)
         if not entry:
             # Also the expiry path: a blob past its TTL is simply gone, and
             # 404 is the honest answer.
@@ -133,7 +137,7 @@ def _register_wsgi(route) -> None:
     def _serve_excalidraw_viewer(file_id: str):
         from flask import abort
 
-        entry = file_store.get(file_id)
+        entry = file_backends.backend().get(file_id)
         if not entry:
             return abort(404)
         mime, _ = entry

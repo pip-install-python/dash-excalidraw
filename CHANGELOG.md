@@ -24,6 +24,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- **Animated GIFs survive the drop, and no longer freeze the tab.** Excalidraw
+  rasterises a dropped GIF to a single still frame before anything downstream
+  sees it — measured, a 123,069-byte 12-frame GIF89a arrived as a 2,820-byte
+  PNG with none. The component now intercepts GIF drops and sends the original
+  bytes down the `lastExternalDrop` path, exactly like a `.pdf`; Excalidraw
+  never decodes them. `/file-uploads` stores those bytes and puts an
+  `embeddable` where the placeholder was, so the browser animates the real
+  file. Verified end to end: 123,069 bytes stored, `GIF89a`, 12 frames, iframe
+  live on the canvas. The rasterisation was also what froze the tab on a large
+  GIF — a 5.17 MB one left the renderer unable to answer a debugger evaluation
+  at all — so not decoding it fixes both symptoms.
+
+  The trade: a GIF is an embed rather than an image element, so it is not
+  croppable or styleable on the canvas.
+
+- **The storage backend is a seam** (`lib/file_backends.py`): `put`, `get`,
+  `url_for`. `EXCALIDRAW_FILE_BACKEND` selects `memory` (default) or `disk`
+  (`EXCALIDRAW_FILE_DIR`), and an unknown name raises at boot rather than
+  falling back — a store that is silently not the one you configured is worse
+  than a failure to start. Implement those three methods and `register_backend`
+  to point uploads at Cloudflare R2, S3 or Postgres; nothing above storage
+  changes, because the canvas only ever needed a URL back. `/file-uploads`
+  explains the whole path and shows which backend is live, and
+  `scripts/stress_file_uploads.py` re-measures the caps, eviction and TTL.
+
 - **`replaceFiles` never replaced anything.** It was built on `api.addFiles`
   overwriting an entry whose id already exists — measured in a browser, that
   is a silent no-op, and there is no `removeFiles` and no `updateScene({files})`

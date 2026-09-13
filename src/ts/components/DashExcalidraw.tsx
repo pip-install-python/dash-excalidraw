@@ -1174,9 +1174,36 @@ const DashExcalidraw = (props: Props) => {
             const fileList = e.dataTransfer?.files;
             if (!fileList || fileList.length === 0) return;
             const files = Array.from(fileList);
+            /* ANIMATED GIFs ARE NOT "just an image" HERE.
+             *
+             * Excalidraw rasterises a dropped GIF to a single still frame
+             * before anything downstream can see it. MEASURED: a 123,069-byte
+             * GIF89a of 12 frames arrives at `lastFileAdded` as a 2,820-byte
+             * PNG with none. So an app that uploads what it is given and
+             * frames it in an iframe is framing a still — the animation was
+             * lost at the drop, not at the embed, and no storage or embed
+             * change can recover it.
+             *
+             * The rasterisation is also what freezes the tab: a 5.17 MB
+             * 600x600x20 GIF left the renderer unable to answer a debugger
+             * evaluation at all, twice, while the server sat idle at 32
+             * callbacks and logged nothing. It is decode work on the main
+             * thread, not I/O. (Timer sampling is useless for this — a
+             * backgrounded tab is throttled to ~1s and an idle page reports
+             * the same lag as a wedged one.)
+             *
+             * So a GIF is taken down the SAME path as a .txt or a .pdf: the
+             * original bytes reach Python verbatim on `lastExternalDrop`, and
+             * the app decides what to put on the canvas — an embeddable
+             * pointing at storage, in /file-uploads' case. Excalidraw never
+             * sees it as an image and never decodes it.
+             */
+            const isAnimatable = (f: File) =>
+                (f.type || '').toLowerCase() === 'image/gif';
             const singleImage =
                 files.length === 1 &&
-                (files[0].type || '').startsWith('image/');
+                (files[0].type || '').startsWith('image/') &&
+                !isAnimatable(files[0]);
             if (singleImage) return; // let Excalidraw handle
 
             // We're taking the drop. Prevent native drop + stop Excalidraw.
@@ -1205,7 +1232,11 @@ const DashExcalidraw = (props: Props) => {
                     mimeType: f.type || 'application/octet-stream',
                     size: f.size,
                     dataURL: await fileToDataURL(f),
-                    isImage: (f.type || '').startsWith('image/'),
+                    // A GIF is deliberately NOT an "image" for placement: it
+                    // goes down the payload path so its bytes survive.
+                    isImage:
+                        (f.type || '').startsWith('image/') && !isAnimatable(f),
+                    isAnimatable: isAnimatable(f),
                 })),
             );
 
@@ -1250,12 +1281,24 @@ const DashExcalidraw = (props: Props) => {
                     );
                     newElements.push(...placeholder.elements);
                     placeholderIds.push(placeholder.rectId);
+                    /* A GIF's real dimensions travel with it. The app puts an
+                     * embeddable where the placeholder was, and an iframe at
+                     * the placeholder's size would letterbox the animation. */
+                    let naturalSize: {width: number; height: number} | null = null;
+                    if (item.isAnimatable) {
+                        try {
+                            naturalSize = await getImageDimensions(item.dataURL);
+                        } catch (_err) {
+                            naturalSize = null;
+                        }
+                    }
                     nonImagePayload.push({
                         name: item.name,
                         mimeType: item.mimeType,
                         dataURL: item.dataURL,
                         size: item.size,
                         placeholderId: placeholder.rectId,
+                        ...(naturalSize ? {naturalSize} : {}),
                     });
                     cursorX += placeholder.width + gap;
                     rowMaxHeight = Math.max(rowMaxHeight, placeholder.height);

@@ -35,6 +35,7 @@ import dash_mantine_components as dmc
 from dash import Input, Output, State, callback, ctx, dcc, html, no_update
 
 from dash_excalidraw import DashExcalidraw, decode_data_url
+from lib import file_backends as _file_backends
 from lib import file_store as _file_store
 from docs._shared import (
     canvas_frame,
@@ -255,7 +256,7 @@ def _preview_for(file_id: str, mime: str, url: str):
         "application/x-yaml",
         "application/toml",
     ):
-        entry = _file_store.get(file_id)
+        entry = _file_backends.backend().get(file_id)
         text = ""
         try:
             text = entry[1].decode("utf-8", errors="replace") if entry else ""
@@ -301,7 +302,7 @@ def _drawer_body(file_id: str, name: str, mime: str, url: str):
     if not file_id:
         return dmc.Text("(no file selected)", c="dimmed")
 
-    entry = _file_store.get(file_id)
+    entry = _file_backends.backend().get(file_id)
     size_bytes = len(entry[1]) if entry else 0
     icon = _emoji_for_mime(mime, name)
     short_mime = (mime or "application/octet-stream").split("/")[-1].upper()
@@ -478,6 +479,7 @@ component = dmc.Stack(
             ),
         ),
         code_block(FLOW_CODE),
+        dmc.Box(id="fu-backend-card"),
         dcc.Store(id="fu-uploads-store", data={}),
         dcc.Store(id="fu-drawer-store", data=None),
         two_column(
@@ -605,9 +607,13 @@ component = dmc.Stack(
                         children=[
                             dmc.Text("GIF auto-embed", fw=600),
                             dmc.Text(
-                                "Canvas rasterization freezes GIFs. We upload, "
-                                "then swap the image element for an embeddable "
-                                "so the iframe renders the animation natively.",
+                                "Excalidraw rasterizes a dropped GIF to one "
+                                "still frame — measured, a 12-frame 123 KB "
+                                "GIF89a arrives as a 2.8 KB PNG. So the "
+                                "component intercepts GIF drops, keeps the "
+                                "original bytes, and this page puts an "
+                                "embeddable over them. The iframe animates the "
+                                "real file; Excalidraw never decodes it.",
                                 size="sm",
                                 c="dimmed",
                             ),
@@ -664,7 +670,7 @@ def _upload_and_swap(event, uploads):
             mime, raw = decode_data_url(f["dataURL"])
         except (ValueError, KeyError):
             continue
-        url = _file_store.put(f["fileId"], mime, raw)
+        url = _file_backends.backend().put(f["fileId"], mime, raw)
         uploads[f["fileId"]] = {
             "url": url,
             "size": f.get("size", len(raw)),
@@ -779,7 +785,18 @@ def _upgrade_gifs_to_embeddable(files, elements):
     prevent_initial_call=True,
 )
 def _handle_external_drop(event, elements, uploads):
-    """Non-image drops: upload each file and set the placeholder's link."""
+    """Non-image drops: upload each file and set the placeholder's link.
+
+    GIFs arrive here too, and that is the point. The component routes them
+    down this path instead of letting Excalidraw place them, because
+    Excalidraw rasterises a GIF to one still frame on drop — measured, a
+    123,069-byte 12-frame GIF89a became a 2,820-byte PNG. What reaches this
+    callback is the ORIGINAL file, so the bytes in storage are the animation.
+
+    A GIF's placeholder is then replaced by an `embeddable` rather than given
+    a link: the iframe loads the stored GIF and the browser animates it, which
+    a canvas image element can never do.
+    """
     if not event or not event.get("files"):
         return no_update, no_update
     placeholder_ids = event.get("placeholderIds") or []
@@ -794,7 +811,7 @@ def _handle_external_drop(event, elements, uploads):
         # and customData.external.fileId. Keeps the drawer lookup honest.
         guessed_ext = mimetypes.guess_extension(mime) or ""
         store_key = f"ext-{uuid.uuid4().hex[:12]}{guessed_ext}"
-        url = _file_store.put(store_key, mime, raw)
+        url = _file_backends.backend().put(store_key, mime, raw)
         uploads[store_key] = {
             "url": url,
             "size": f.get("size", len(raw)),
@@ -809,15 +826,49 @@ def _handle_external_drop(event, elements, uploads):
                 "fileId": store_key,
                 "mimeType": mime,
                 "name": f.get("name") or store_key,
+                # Carried from the drop so the embed matches the GIF rather
+                # than the placeholder rectangle it replaces.
+                "naturalSize": f.get("naturalSize"),
             }
     if not updates:
         return no_update, uploads
 
-    # Update matching placeholder rectangles with link (+ sidecar metadata)
+    # A placeholder is a GROUP — rectangle, icon, name, size, badge — so a GIF
+    # replacing one has to remove all five, not just repaint the rectangle, or
+    # the label floats on top of the animation.
+    gif_groups = set()
+    for el in elements or []:
+        meta = updates.get(el.get("id"))
+        if meta and meta["mimeType"] == "image/gif":
+            gif_groups.update(el.get("groupIds") or [])
+
     new_elements = []
     for el in elements or []:
         meta = updates.get(el.get("id"))
-        if meta and el.get("type") == "rectangle":
+        if meta and meta["mimeType"] == "image/gif" and el.get("type") == "rectangle":
+            # A GIF becomes an iframe over the stored file. `/viewer` rather
+            # than the raw URL: framing an image directly trips Chromium's
+            # same-URL frame check, and a one-line HTML document holding an
+            # <img> does not.
+            size = meta.get("naturalSize") or {}
+            new_elements.append({
+                **el,
+                "type": "embeddable",
+                "width": size.get("width") or el.get("width", 320),
+                "height": size.get("height") or el.get("height", 240),
+                "link": meta["link"].rstrip("/") + "/viewer",
+                "strokeColor": "transparent",
+                "backgroundColor": "transparent",
+                "groupIds": [],
+                "customData": {
+                    **(el.get("customData") or {}),
+                    "external": meta,
+                },
+            })
+        elif gif_groups.intersection(el.get("groupIds") or []):
+            # The rest of that placeholder group: dropped.
+            continue
+        elif meta and el.get("type") == "rectangle":
             patched = dict(el)
             patched["link"] = meta["link"]
             # Stash metadata in customData so the drawer callback can look up
@@ -922,4 +973,73 @@ if clientside_callback is not None:
         Input("fu-drawer-copy-btn", "n_clicks"),
         State("fu-drawer-store", "data"),
         prevent_initial_call=True,
+    )
+
+
+@callback(
+    Output("fu-backend-card", "children"),
+    Input("fu-canvas", "id"),
+)
+def _describe_backend(_id):
+    """Name the storage backend that is actually serving, at page load.
+
+    Prose in the markdown can go stale the moment somebody sets an env var;
+    this reads the live object, so what the page claims about where bytes go
+    is what is happening. It also makes the seam visible — the whole point is
+    that this line can say "r2" without anything else on the page changing.
+    """
+    info = _file_backends.backend().describe()
+    rows = [
+        dmc.Group(
+            gap="xs",
+            children=[
+                dmc.Text("Storage backend", fw=600, size="sm"),
+                dmc.Badge(info.get("name", "?"), variant="light"),
+                dmc.Badge(
+                    "serves bytes here"
+                    if info.get("serves_bytes")
+                    else "bytes served elsewhere",
+                    color="teal" if info.get("serves_bytes") else "grape",
+                    variant="light",
+                    size="sm",
+                ),
+            ],
+        )
+    ]
+
+    facts = []
+    if info.get("max_entry_bytes"):
+        facts.append(f"{info['max_entry_bytes'] // (1024 * 1024)} MB per file")
+    if info.get("max_total_bytes"):
+        facts.append(f"{info['max_total_bytes'] // (1024 * 1024)} MB total")
+    if info.get("ttl_seconds"):
+        facts.append(f"{info['ttl_seconds'] // 60} min TTL")
+    if info.get("root"):
+        facts.append(info["root"])
+    # State the two properties that decide whether this is deployable, rather
+    # than leaving someone to infer them from the backend's name.
+    facts.append(
+        "survives a restart"
+        if info.get("survives_restart")
+        else "lost on restart"
+    )
+    facts.append(
+        "shared between workers"
+        if info.get("shared_between_workers")
+        else "per-worker"
+    )
+    rows.append(dmc.Text(" · ".join(facts), size="xs", c="dimmed"))
+    rows.append(
+        dmc.Text(
+            "EXCALIDRAW_FILE_BACKEND selects it (memory | disk). Implement "
+            "three methods to point it at R2, S3 or Postgres — see the section "
+            "above and lib/file_backends.py.",
+            size="xs",
+            c="dimmed",
+        )
+    )
+    return dmc.Alert(
+        dmc.Stack(rows, gap=4),
+        color="blue",
+        variant="light",
     )
