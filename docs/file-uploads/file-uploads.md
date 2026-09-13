@@ -109,6 +109,31 @@ The trade is that a GIF is an embed rather than an image element: it is not
 croppable or styleable on the canvas, and it needs the storage URL to be
 reachable from the browser. That is the price of it moving at all.
 
+#### An embed always draws above the canvas, whatever the z-order says
+
+**Bring to front will not lift a shape above a GIF**, and that is not a bug in
+this page — it is how Excalidraw renders. Measured in the DOM:
+
+| layer | what is in it | z-index |
+|---|---|---|
+| `.excalidraw__canvas.static` | every rectangle, image, arrow and text — painted as pixels into **one** bitmap | 1 |
+| `.excalidraw__embeddable-container` | every embed, as real `<iframe>` elements | 2 |
+
+Scene order decides the painting order *within* that single canvas. It cannot
+lift part of a bitmap above a DOM sibling that sits in a higher layer, so an
+embed is in front of every ordinary element no matter where it sits in the
+scene. The same is true of a YouTube embed on excalidraw.com; nothing about
+GIFs or this page causes it.
+
+There is no setting that fixes it. Raising the canvas above the embed layer
+would only invert the problem — every embed would hide behind everything and
+stop being clickable — and true interleaving would mean one canvas per z-band,
+which is an upstream renderer change.
+
+What works in practice: don't overlap them. If layering matters more than
+motion for a particular image, keep it as an ordinary image element and accept
+a still frame.
+
 ### Overview
 
 Keep canvas JSON small: uploads to external storage, base64 swapped for URLs.

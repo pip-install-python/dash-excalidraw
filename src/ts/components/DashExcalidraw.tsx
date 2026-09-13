@@ -1562,6 +1562,17 @@ const DashExcalidraw = (props: Props) => {
                          *
                          * Resolved against the page's own origin, which is
                          * where such a path was always going to point.
+                         *
+                         * KNOWN AND NOT FIXABLE HERE: an embeddable always
+                         * draws above every ordinary element, whatever the
+                         * scene order says. Measured in the DOM —
+                         * `.excalidraw__canvas.static` (every shape, image and
+                         * text, painted into ONE bitmap) is z-index 1, and
+                         * `.excalidraw__embeddable-container` (the iframes) is
+                         * z-index 2. Scene order decides painting WITHIN the
+                         * bitmap; it cannot lift part of it above a DOM
+                         * sibling in a higher layer. "Bring to front" on a
+                         * shape therefore does nothing against an embed.
                          */
                         if (Array.isArray(scenePayload.elements)) {
                             scenePayload.elements = scenePayload.elements.map(

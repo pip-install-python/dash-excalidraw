@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- **Documented: an embed always draws above every ordinary element**, whatever
+  the scene z-order says, so "bring to front" on a shape does nothing against a
+  GIF. Measured in the DOM — the static canvas holding every shape, image and
+  text is one bitmap at z-index 1, and the iframe container is a DOM layer at
+  z-index 2. It is upstream Excalidraw behaviour, identical for a YouTube
+  embed on excalidraw.com, and there is no setting that fixes it.
+
 - **The toolbar's "insert image" now takes GIFs down the same path as a drop.**
   Dropping worked and picking did not, which was not a second bug but a second
   door: Excalidraw opens its picker with `browser-fs-access`, which uses
