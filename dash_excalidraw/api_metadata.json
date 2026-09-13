@@ -1,7 +1,7 @@
 {
  "components": [
   {
-   "description": "DashExcalidraw is an Excalidraw drawing canvas bound to Dash via a\nJSON-safe prop surface. See the per-prop docs above for the full\ncatalog; see the README for the command/event round-trip pattern used\nfor imperative actions like exports.",
+   "description": "",
    "name": "DashExcalidraw",
    "props": [
     {
@@ -230,7 +230,7 @@
     },
     {
      "default": "",
-     "description": "Monotonic scene version from `excalidrawAPI.getSceneVersion()`.\nUseful for change detection without diffing element arrays.",
+     "description": "Monotonic scene version, from the package's `getSceneVersion(elements)`\nexport. Useful for change detection without diffing element arrays.\n\nIt tracks ELEMENTS only. Registering a file, panning or zooming leaves\nit unchanged, so a callback that must see those should take `files` or\n`appState` as its Input rather than this.",
      "name": "sceneVersion",
      "required": false,
      "type": "number"
@@ -272,6 +272,27 @@
     },
     {
      "default": "",
+     "description": "A scene to open with when `initialData` is not given: `{elements,\nappState, files}`, the same shape `initialData` and\n`externalizedSerializedData` use, so a scene produced anywhere in this\nlibrary can be pasted straight in.\n\nMOUNT-ONLY, like `initialData` \u2014 Excalidraw owns the scene afterwards.\nDispatch `updateScene` to change it later.",
+     "name": "welcomeScene",
+     "required": false,
+     "type": "objectOf"
+    },
+    {
+     "default": "",
+     "description": "Show Excalidraw's welcome overlay on an empty canvas.\n\nREACTIVE, unlike `UIOptions.welcomeScreen`. The vendor reads that key\nonce while the canvas is mounting, so a switch wired to it appears to do\nnothing \u2014 which is exactly how it read.\n\nThis works by composing Excalidraw's `<WelcomeScreen>` as a CHILD, which\nReact mounts and unmounts with the prop. MEASURED, because the obvious\nalternative looks right and is not: `appState.showWelcomeScreen` exists,\nbut `updateScene({appState: {showWelcomeScreen: false}})` leaves it\n`true` \u2014 the vendor filters that key out of the merge, silently. Do not\n\"fix\" this back to an appState push.",
+     "name": "welcomeScreen",
+     "required": false,
+     "type": "bool"
+    },
+    {
+     "default": "",
+     "description": "Words for the welcome overlay: `{title, subtitle}`. Either may be\nomitted. Supplying neither keeps Excalidraw's own wording.\n\nOnly the TEXT is yours \u2014 the overlay's menu hints stay the vendor's, so\nthey cannot drift out of step with the menu they describe.",
+     "name": "welcomeScreenContent",
+     "required": false,
+     "type": "dict"
+    },
+    {
+     "default": "",
      "description": "CSS width of the canvas container.\n@,default,\"100%\"",
      "name": "width",
      "required": false,
@@ -287,5 +308,5 @@
    ]
   }
  ],
- "generated": "2026-09-09"
+ "generated": "2026-09-12"
 }
