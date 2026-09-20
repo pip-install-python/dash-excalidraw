@@ -24,7 +24,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import conftest
-import diskcache
 import pytest
 
 from lib import spend
@@ -59,7 +58,7 @@ class TestOneBudgetNotOnePerWorker:
         # Asserted against a Cache built here, so it cannot be satisfied by
         # any in-process state at all.
         spend.record(2.50)
-        outsider = diskcache.Cache(spend.CACHE_DIR)
+        outsider = spend.open_cache(spend.CACHE_DIR)
         try:
             key = spend._day_key()
             assert outsider.get(key) == 2_500_000  # micro-dollars

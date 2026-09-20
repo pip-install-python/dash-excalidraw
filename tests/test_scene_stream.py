@@ -31,7 +31,6 @@ import threading
 import time
 from pathlib import Path
 
-import diskcache
 import pytest
 
 from lib import scene_stream
@@ -105,7 +104,7 @@ class TestItSharesAcrossWorkers:
         run_id = scene_stream.start(model="stub", user_prompt="x")
         _wait_done(run_id)
 
-        outsider = diskcache.Cache(scene_stream.CACHE_DIR)
+        outsider = scene_stream.open_cache(scene_stream.CACHE_DIR)
         try:
             meta = outsider.get(f"run:{run_id}:meta")
             assert meta is not None and meta["count"] == 2
@@ -238,7 +237,7 @@ class TestForget:
         scene_stream.forget(run_id)
 
         assert scene_stream.take(run_id, 0)["found"] is False
-        outsider = diskcache.Cache(scene_stream.CACHE_DIR)
+        outsider = scene_stream.open_cache(scene_stream.CACHE_DIR)
         try:
             # Leaving the element keys behind would leak the whole scene for
             # RUN_TTL after a Clear that claimed to drop it.

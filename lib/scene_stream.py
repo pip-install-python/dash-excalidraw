@@ -78,12 +78,33 @@ ELEMENT_TTL = MAX_RUN_SECONDS + RUN_TTL
 # to the instance and shared by its workers.
 # Exposed as a name so the test suite's guard can ask this module where it
 # would write, rather than re-deriving the path — see lib/spend.DEFAULT_CACHE_DIR.
-DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "excalidraw-scene-stream")
+# JSON on disk, not pickle — see lib/spend for the advisory and the reasoning.
+DEFAULT_CACHE_DIR = os.path.join(
+    tempfile.gettempdir(), "excalidraw-scene-stream-json"
+)
 
 CACHE_DIR = os.environ.get("SCENE_STREAM_DIR", DEFAULT_CACHE_DIR)
 
 _cache: diskcache.Cache | None = None
 _cache_lock = threading.Lock()
+
+
+def open_cache(directory: str) -> diskcache.Cache:
+    """Open a cache on `directory` in the format this module writes.
+
+    THE ONE PLACE THE DISK FORMAT IS CHOSEN, and it is public because a second
+    handle that does not match the first cannot read what the first wrote —
+    `diskcache.Cache(directory)` on a JSON cache gets bytes it will not decode.
+    In production every handle comes from `cache()` below, so they always
+    agree; a test standing in for "the other gunicorn worker" has to come
+    through here for the same reason.
+    """
+    # compress_level=0 because these values are small and the round trip is on
+    # the request path. Note diskcache PERSISTS `disk_*` settings into the
+    # cache's own settings table, so a later plain `Cache(directory)` fails on
+    # the unexpected kwarg — one more reason for a single door.
+    return diskcache.Cache(directory, disk=diskcache.JSONDisk,
+                           disk_compress_level=0)
 
 
 def cache() -> diskcache.Cache:
@@ -98,7 +119,7 @@ def cache() -> diskcache.Cache:
     if _cache is None:
         with _cache_lock:
             if _cache is None:
-                _cache = diskcache.Cache(CACHE_DIR)
+                _cache = open_cache(CACHE_DIR)
                 atexit.register(_cache.close)
     return _cache
 

@@ -92,7 +92,36 @@ _MICRO = 1_000_000
 # Exposed as a name because the suite's control watches it: the guard asks the
 # module where it would write rather than re-deriving the path and hoping the
 # two expressions stay in step.
-DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "excalidraw-ai-spend")
+# JSON ON DISK, NOT PICKLE — CVE-2025-69872 / PYSEC-2026-2447.
+#
+# diskcache <=5.6.3 serialises values with `pickle` by default, and the
+# advisory is precise about the precondition: "an attacker with write access
+# to the cache directory can achieve arbitrary code execution when a victim
+# application reads from the cache". There is no fixed release.
+#
+# Nothing a site visitor sends reaches that path — keys are minted here (a
+# uuid4 hex, a UTC date) and values are ints and plain dicts. The exposure is
+# a LOCAL one: these directories default to a predictable name under the
+# system temp dir, and on a shared multi-user host another local account can
+# create `/tmp/excalidraw-*` first and fill it with a hostile payload this
+# process would then unpickle.
+#
+# Rather than argue that through, the pickle is removed. `JSONDisk` stores
+# JSON, so a crafted file is a decode error instead of a code path. Measured:
+# every value either module stores — the spend total, a run's metadata, a
+# scene element with its points array — round-trips through JSONDisk
+# unchanged, and `transact()` still works.
+#
+# The directory name carries `-json` because a directory written by the
+# pickle-backed default cannot be read by this one, and a half-migrated
+# directory would raise on read rather than fall back.
+#
+# It does raise, and the DIRECTION of that was measured rather than assumed:
+# a row rewritten with a pickle payload makes `spent_today()` raise TypeError,
+# not return 0.00. That matters — a budget that reads as zero when its store
+# is unreadable is a budget that is fully open at exactly the wrong moment.
+# An error on the page is the safe failure here, so it is left to raise.
+DEFAULT_CACHE_DIR = os.path.join(tempfile.gettempdir(), "excalidraw-ai-spend-json")
 
 CACHE_DIR = os.environ.get("AI_SPEND_DIR", DEFAULT_CACHE_DIR)
 
@@ -108,6 +137,24 @@ class CeilingReached(RuntimeError):
     """Raised instead of making a paid call. Carries a message for the page."""
 
 
+def open_cache(directory: str) -> diskcache.Cache:
+    """Open a cache on `directory` in the format this module writes.
+
+    THE ONE PLACE THE DISK FORMAT IS CHOSEN, and it is public because a second
+    handle that does not match the first cannot read what the first wrote —
+    `diskcache.Cache(directory)` on a JSON cache gets bytes it will not decode.
+    In production every handle comes from `cache()` below, so they always
+    agree; a test standing in for "the other gunicorn worker" has to come
+    through here for the same reason.
+    """
+    # compress_level=0 because these values are small and the round trip is on
+    # the request path. Note diskcache PERSISTS `disk_*` settings into the
+    # cache's own settings table, so a later plain `Cache(directory)` fails on
+    # the unexpected kwarg — one more reason for a single door.
+    return diskcache.Cache(directory, disk=diskcache.JSONDisk,
+                           disk_compress_level=0)
+
+
 def cache() -> diskcache.Cache:
     """The shared store, opened once per process and never at import.
 
@@ -119,7 +166,7 @@ def cache() -> diskcache.Cache:
     if _cache is None:
         with _lock:
             if _cache is None:
-                _cache = diskcache.Cache(CACHE_DIR)
+                _cache = open_cache(CACHE_DIR)
                 atexit.register(_cache.close)
     return _cache
 
