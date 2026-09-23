@@ -27,6 +27,7 @@ REQUIRED_PATHS = {
     "/file-uploads",
     "/ai-agent",
     "/benchmark",
+    "/scene-viewer",
 }
 
 
