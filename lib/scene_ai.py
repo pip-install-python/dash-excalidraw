@@ -150,6 +150,10 @@ Return ONLY the JSON object — no preamble, no markdown fence, no epilogue."""
 # Fable 5.1 is the most capable of these and is listed second on purpose — at
 # $10/$50 per 1M it is twice Opus 5's rate, and making the most expensive
 # model the default is the owner's decision, not a side effect of adding it.
+# Claude Opus 5.5 (added 2026-09-22) sits between them for the same reason in
+# the other direction: it is newer and cheaper than Opus 5, but every budget
+# and effort default below was MEASURED on Opus 5, so promoting 5.5 to the
+# default is a choice to make after measuring it, not by inserting it first.
 # Every environment variable that can put a PAID API within reach of this
 # module. Two things read this tuple, and that is the whole point:
 #
@@ -175,6 +179,7 @@ PROVIDER_KEY_VARS = (
 
 CLAUDE_MODELS = [
     {"value": "claude-opus-5", "label": "Claude Opus 5"},
+    {"value": "claude-opus-5-5", "label": "Claude Opus 5.5"},
     {"value": "claude-fable-5-1", "label": "Claude Fable 5.1"},
     {"value": "claude-opus-4-7", "label": "Claude Opus 4.7"},
     {"value": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6"},
@@ -207,6 +212,11 @@ CLAUDE_MAX_TOKENS = {
     # worst case; `stop_reason: max_tokens` is surfaced explicitly below, so
     # a scene that genuinely needs more says so instead of truncating quietly.
     "claude-opus-5": 24000,
+    # Opus 5.5 gets Opus 5's budget for Opus 5's reason, made stronger: its
+    # thinking cannot be disabled at all (`{"type": "disabled"}` is a 400 at
+    # every effort level), so max_tokens always bounds thinking AND text.
+    # NOT yet measured on this page's prompts — 24K is inherited, not tuned.
+    "claude-opus-5-5": 24000,
     # Claude Fable 5.1 gets Opus 5's tighter budget for the same reason, and
     # the reason is stronger here: thinking is ALWAYS on (it cannot be
     # disabled — `{"type": "disabled"}` and `budget_tokens` both 400), and
@@ -247,6 +257,7 @@ EFFORT_LEVELS = [
 # to be gated per model, not merely defaulted.
 EFFORT_CAPABLE = {
     "claude-opus-5",
+    "claude-opus-5-5",
     "claude-fable-5-1",
     "claude-opus-4-7",
     "claude-sonnet-4-6",
@@ -294,6 +305,9 @@ CLAUDE_PRICING = {
     # Opus 5, which is exactly what the page's cost estimate exists to show
     # you BEFORE you press the button.
     "claude-fable-5-1": (10.0, 50.0),
+    # Cheaper than Opus 5 on both sides — the one row where the newer model
+    # costs less.
+    "claude-opus-5-5": (4.0, 20.0),
     "claude-opus-4-7": (5.0, 25.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
@@ -306,6 +320,10 @@ CLAUDE_EFFORT = {
     # than high effort on older ones. On /benchmark you can sweep it up to
     # `max`; this is only where the selector starts.
     "claude-fable-5-1": "low",
+    # `low` set EXPLICITLY. Opus 5.5's own default is `medium`, one level
+    # below every other model here, so leaving it unset would not mean what
+    # it means for the rest of the table — see MODEL_DEFAULT_EFFORT.
+    "claude-opus-5-5": "low",
     "claude-opus-4-7": "low",
     "claude-sonnet-4-6": None,
     "claude-haiku-4-5": None,
@@ -413,9 +431,11 @@ COMPARABLE_MODELS = [
 # Models that accept an image alongside the prompt — what /trace-image needs.
 # MEASURED 2026-09-10, not assumed: every Claude entry reports
 # `image_input.supported: true` from `GET /v1/models/{id}`, and all four
-# OpenAI entries list input modalities "text, image" on their model pages. All
-# nine qualify today; the set exists so that stops being an assumption the
-# moment a text-only model is added to either list.
+# OpenAI entries list input modalities "text, image" on their model pages.
+# claude-opus-5-5 measured the same way on 2026-09-22 (image_input true, all
+# five effort levels true, 1M in / 128K out). All ten qualify today; the set
+# exists so that stops being an assumption the moment a text-only model is
+# added to either list.
 VISION_MODELS = {m["value"] for m in COMPARABLE_MODELS}
 
 
@@ -742,6 +762,14 @@ EFFORT_UTILISATION = {
     "max": 0.95,
 }
 
+# The level a model runs at when NO output_config is sent — what "none" costs.
+# `high` is the API's default everywhere except Claude Opus 5.5, whose default
+# is `medium`; pricing "none" as high there would quote a level the model
+# never runs at. Models not listed fall back to EFFORT_UTILISATION["none"].
+MODEL_DEFAULT_EFFORT = {
+    "claude-opus-5-5": "medium",
+}
+
 # Input is priced too, but it is not where the money goes. The system prompt
 # is ~1,300 tokens; against a 24K output budget that is 1.1% of the bill on
 # every model in CLAUDE_PRICING, and prompt caching drops the repeat cost to a
@@ -822,8 +850,11 @@ def estimate_cost(
 
     in_price, out_price = price
     applied = resolve_effort(model, effort)
-    # An unsent effort means the model's own default, which is `high`-like.
-    fraction = EFFORT_UTILISATION.get(applied or "none", 0.70)
+    # An unsent effort means the model's own default — `high`-like, except
+    # where MODEL_DEFAULT_EFFORT says otherwise.
+    fraction = EFFORT_UTILISATION.get(
+        applied or MODEL_DEFAULT_EFFORT.get(model, "none"), 0.70
+    )
 
     fixed_input = (
         (_APPROX_INPUT_TOKENS + max(0, extra_input_tokens)) * in_price / 1_000_000
