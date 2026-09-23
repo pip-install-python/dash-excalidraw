@@ -341,3 +341,16 @@ clientside_callback(
     State("components-navbar-drawer", "opened"),
     prevent_initial_call=True,
 )
+
+# ...and close it when the page changes (DIVERGENCES.md 18). A drawer link is
+# a dmc.Anchor, which DMC routes client-side. MEASURED: tapping one changed
+# the path and kept the document, and the drawer stayed open over the page
+# the reader had just picked, overlay included, until a second tap on the
+# hamburger. Keyed on the pathname, so it also covers the drawer's own search
+# box, which navigates the same way.
+clientside_callback(
+    """function(_pathname) { return false }""",
+    Output("components-navbar-drawer", "opened", allow_duplicate=True),
+    Input("url", "pathname"),
+    prevent_initial_call=True,
+)

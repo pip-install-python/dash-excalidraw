@@ -4,7 +4,7 @@ description: The three commands and ten props no other example reaches — the l
 endpoint: /coverage
 package: dash_excalidraw
 category: Advanced
-order: 6
+order: 8
 icon: mdi:checkbox-multiple-marked-outline
 lastmod: 2026-09-09
 ---

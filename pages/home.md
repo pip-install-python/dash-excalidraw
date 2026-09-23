@@ -65,6 +65,8 @@ time, no `external_stylesheets` entry, no build step.
 **Start here** — [Basic usage](/basic) is the smallest useful app.
 [initialData](/initial-data) seeds a scene at mount.
 
+**Appearance** — [Theming](/theming), [View modes](/view-modes), [UIOptions](/ui-options).
+
 **Reading the canvas** — [Events](/events) shows every callback as a snapshot prop.
 [Persistence](/persistence) streams `serializedData` to a store and restores it.
 
@@ -72,14 +74,14 @@ time, no `external_stylesheets` entry, no build step.
 Python. [Export](/export) is the async round-trip. [Library](/library) reads and
 writes the shape library.
 
-**Appearance** — [Theming](/theming), [View modes](/view-modes), [UIOptions](/ui-options).
-
 **At scale** — [File uploads](/file-uploads) keeps canvas JSON small by pushing
 pasted images to storage and swapping the base64 for URLs.
 [Collaboration](/collaboration) drives the collaborator UI and live cursors.
 
 **AI** — [AI agent](/ai-agent) turns a natural-language prompt into a scene, and is
-honest about what that costs.
+honest about what that costs. [Trace an image](/trace-image) redraws a picture as a
+scene, and [Scene viewer](/scene-viewer) renders any scene JSON — a trace included —
+with no model and no key.
 
 ---
 

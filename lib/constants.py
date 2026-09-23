@@ -246,13 +246,14 @@ SAME_AS = [GITHUB_URL, PYPI_URL]
 # `category:` in its frontmatter; categories not listed here follow the
 # listed ones, alphabetically. Keep names short — they are sidebar titles.
 #
-# The order is the reading order the old hand-written `page_order` list
-# encoded, promoted from names to categories: start on the canvas, then read
-# it, then drive it, then style it, then the things that need a backend.
+# The reading order: start on the canvas, then make it look right, then read
+# and drive it from Python, then the things that need a backend. Appearance
+# moved ahead of Data flow on 2026-09-22 (owner's call): its three pages are
+# props you set once, and a reader should meet them before the callbacks.
 CATEGORY_ORDER = [
     "Getting started",
-    "Data flow",
     "Appearance",
+    "Data flow",
     "Advanced",
 ]
 

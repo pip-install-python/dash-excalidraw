@@ -422,6 +422,26 @@ leak a placeholder into served prose. The ops seat carries this shape upstream
 as a template rider (a satellite naming its own distribution and module); if
 the template adopts it, this entry retires in that sync.
 
+### 18. The mobile drawer closes when the page changes
+
+`components/header.py` adds one clientside callback the template does not
+have: `Input("url", "pathname")` → `components-navbar-drawer.opened = false`.
+
+**Why:** measured 2026-09-22 on a local build. A drawer link is a
+`dmc.Anchor`, which DMC routes client-side. Tapping "Scene viewer" in the
+open drawer changed the path, kept the same document, and left the drawer
+open with its overlay at 0.55 over the page the reader had just picked. It
+took a second tap on the hamburger to see that page. The same happens after
+choosing a page in the drawer's search box, which navigates through `url` as
+well. `components/navbar.py` is untouched and byte-identical to the template;
+the fix sits beside the hamburger's own toggle callback.
+
+**Template-class, to be filed upward:** every fork's drawer is built by the
+same `create_navbar_drawer`, so every host has this. When the template
+adopts it, this entry retires and `header.py` returns to the template's
+bytes. `tests/test_sidebar_order.py::test_the_mobile_drawer_closes_when_the_page_changes`
+pins it (red with the callback removed, checked).
+
 ## Retired
 
 Retirements are marked here, not deleted, so that older reports describing

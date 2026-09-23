@@ -31,7 +31,9 @@ base64 for the reference image you fed in.
 That object is the shape [`initialData`](/initial-data) takes, and the shape
 the component's `welcomeScene` prop takes. So the loop is: upload a reference,
 trace it, copy the JSON, and paste it in as the scene your own canvas opens
-with.
+with. To look at a copied trace again later, or at one someone sent you, paste
+it into [Scene viewer](/scene-viewer). It renders the JSON without calling a
+model.
 
 ### Overview
 
