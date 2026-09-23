@@ -22,7 +22,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Draw or trace a scene, copy it, paste it into `welcomeScene` or
   `initialData`.
 
+- **`/scene-viewer`**: paste or upload raw scene JSON and render it on a
+  live canvas. It is the other half of `/trace-image`. It accepts a full
+  `.excalidraw` envelope, anything shaped like `initialData`, a bare element
+  array, a model's fenced reply, and `serializedData` quoted once too often.
+  Before rendering, it reports what Excalidraw's loader would otherwise drop
+  without a word: unknown types, invisibly small elements, duplicate ids, and
+  images whose bytes were externalized to `null`. No model is called, so it
+  works on this site. It also documents a reusable pattern: a render is four
+  commands fed one at a time through a `dcc.Store` queue, advanced each time
+  the canvas clears `command`.
+
+- **Claude Opus 5.5 on `/ai-agent`, `/benchmark` and `/trace-image`**
+  (`claude-opus-5-5`, $4 / $20 per 1M tokens). Its image input, all five
+  effort levels and its 1M / 128K limits were read from `GET /v1/models` on
+  2026-09-22. Its API default effort is `medium`, not `high`, so the
+  selector starts at an explicit `low` and the "none" estimate is priced as
+  medium. Claude Opus 5 stays the default model.
+
+#### Changed
+
+- **The sidebar reads Getting started → Appearance → Data flow → Advanced.**
+  Appearance moved ahead of Data flow. Inside Advanced, Coverage moved to the
+  end: it shared `order: 6` with Trace an image and sorted between Benchmark
+  and Trace by name alone.
+
 #### Fixed
+
+- **The mobile drawer closes when you pick a page.** Drawer links route
+  client-side, so the drawer stayed open with its overlay over the page you
+  had just chosen until a second tap on the hamburger. Recorded as
+  DIVERGENCES.md 18. It is template-class and should be filed upward.
 
 - **Documented: an embed always draws above every ordinary element**, whatever
   the scene z-order says, so "bring to front" on a shape does nothing against a
