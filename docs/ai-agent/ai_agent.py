@@ -35,10 +35,10 @@ from typing import Any, Dict
 
 import dash
 import dash_mantine_components as dmc
-from dash import Input, Output, State, callback, dcc, html, no_update
+from dash import Input, Output, State, callback, clientside_callback, dcc, html, no_update
 
 from dash_excalidraw import DashExcalidraw
-from lib import scene_stream, spend
+from lib import scene_library, scene_stream, spend
 from lib.scene_ai import (  # shared with /benchmark — see lib/scene_ai.py
     CLAUDE_EFFORT,
     CLAUDE_MAX_TOKENS,
@@ -375,6 +375,29 @@ component = dmc.Stack(
                                 variant="subtle",
                                 color="red",
                             ),
+                            # The scene library: LOCAL-ONLY, enabled on the same
+                            # condition as generation itself (provider keys
+                            # present). See lib/scene_library.py.
+                            dmc.Button(
+                                "Save scene",
+                                id="ai-save-btn",
+                                leftSection="💾",
+                                variant="light",
+                                color="indigo",
+                                disabled=not ANY_KEY,
+                            ),
+                            dmc.Select(
+                                id="ai-library",
+                                placeholder=(
+                                    "Saved scenes (local)" if ANY_KEY
+                                    else "Scene library is local-only"
+                                ),
+                                data=[],
+                                searchable=True,
+                                clearable=True,
+                                w=380,
+                                disabled=not ANY_KEY,
+                            ),
                         ]
                     ),
                 ],
@@ -424,6 +447,15 @@ component = dmc.Stack(
             title="Status",
         ),
         dcc.Store(id="ai-last-raw", data=""),
+        # The drawing in ARRIVAL ORDER, captured from the canvas command stream
+        # (see the timeline section at the bottom). The timeline replays
+        # `elements[:i]`.
+        dcc.Store(id="ai-history", data={"elements": []}),
+        # Mirror of this page's controls for window.DeckBridge (assets/
+        # deck_bridge.js) — how a Stream Deck drives this page. Holds only a
+        # timestamp; the state itself lives on window.
+        dcc.Store(id="ai-deck-mirror"),
+        dcc.Store(id="ai-library-mount", data=0),
         # The streaming pair. `ai-run` holds the id of the generation in
         # flight plus how many elements the canvas has already been shown;
         # `ai-stream-tick` collects whatever arrived since. 400ms is fast
@@ -477,6 +509,49 @@ component = dmc.Stack(
                                     },
                                 ),
                                 min_height=640,
+                            ),
+                            # THE TIMELINE. Every scene arrives one element at a
+                            # time, so the draw order is a timeline for free:
+                            # scrub it to step back through the drawing, or
+                            # replay it. Works on saved scenes too.
+                            dmc.Paper(
+                                withBorder=True,
+                                p="sm",
+                                mt="xs",
+                                children=dmc.Stack(
+                                    gap=6,
+                                    children=[
+                                        dmc.Group(
+                                            [
+                                                dmc.Button(
+                                                    "Replay",
+                                                    id="ai-timeline-play",
+                                                    leftSection="▶",
+                                                    size="xs",
+                                                    variant="light",
+                                                    color="indigo",
+                                                ),
+                                                dmc.Text("Timeline", size="sm", fw=600),
+                                                dmc.Text(
+                                                    "No scene yet.",
+                                                    id="ai-timeline-label",
+                                                    size="xs",
+                                                    c="dimmed",
+                                                ),
+                                            ],
+                                            gap="sm",
+                                        ),
+                                        dmc.Slider(
+                                            id="ai-timeline",
+                                            min=0,
+                                            max=1,
+                                            value=0,
+                                            step=1,
+                                            disabled=True,
+                                            color="indigo",
+                                        ),
+                                    ],
+                                ),
                             ),
                         ],
                     ),
@@ -1087,3 +1162,218 @@ def _lock_controls(tick_disabled):
     off = drawing or not ANY_KEY
     # Stop is the one control that is enabled precisely when a run is going.
     return (drawing, off, not drawing) + (off,) * 5
+
+
+# ---------------------------------------------------------------------------
+# Timeline, scene library, and the Stream Deck bridge
+# ---------------------------------------------------------------------------
+#
+# The timeline is CLIENTSIDE end to end. The history is captured from the
+# canvas `command` prop itself — every updateScene the stream sends carries
+# all elements so far, in arrival order — so none of the streaming callbacks
+# above had to change. Scrubbing writes the canvas through
+# `dash_clientside.set_props` rather than an Output: an Output on
+# `ai-canvas.command` from a callback that (indirectly) listens to it would be
+# a dependency cycle, and set_props is outside the static graph. Commands the
+# timeline itself sends carry a `tl-` id prefix and are ignored by the capture.
+
+clientside_callback(
+    """
+    function (cmd) {
+        var nu = window.dash_clientside.no_update;
+        if (!cmd || !cmd.type) return nu;
+        if (String(cmd.id || "").indexOf("tl-") === 0) return nu;
+        if (cmd.type === "resetScene") return {elements: [], t: Date.now()};
+        if (cmd.type === "updateScene" && cmd.payload && Array.isArray(cmd.payload.elements)) {
+            return {elements: cmd.payload.elements, t: Date.now()};
+        }
+        return nu;
+    }
+    """,
+    Output("ai-history", "data"),
+    Input("ai-canvas", "command"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function (h) {
+        var n = ((h && h.elements) || []).length;
+        window.__aiTlShown = n;  // the canvas already shows the whole scene
+        return [Math.max(n, 1), n, n === 0,
+                n ? (n + " / " + n + " elements") : "No scene yet."];
+    }
+    """,
+    Output("ai-timeline", "max"),
+    Output("ai-timeline", "value"),
+    Output("ai-timeline", "disabled"),
+    Output("ai-timeline-label", "children"),
+    Input("ai-history", "data"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function (v, h, tickDisabled) {
+        var nu = window.dash_clientside.no_update;
+        var els = (h && h.elements) || [];
+        if (v === null || v === undefined || !els.length) return nu;
+        var label = v + " / " + els.length + " elements";
+        if (v === window.__aiTlShown) return label;
+        if (tickDisabled === false) return label + " — drawing; scrub when it finishes";
+        window.__aiTlShown = v;
+        window.dash_clientside.set_props("ai-canvas", {command: {
+            id: "tl-" + Date.now() + "-" + v,
+            type: "updateScene",
+            payload: {elements: els.slice(0, v), captureUpdate: "NEVER"}
+        }});
+        return label;
+    }
+    """,
+    Output("ai-timeline-label", "children", allow_duplicate=True),
+    Input("ai-timeline", "value"),
+    State("ai-history", "data"),
+    State("ai-stream-tick", "disabled"),
+    prevent_initial_call=True,
+)
+
+clientside_callback(
+    """
+    function (n, h) {
+        var nu = window.dash_clientside.no_update;
+        var N = ((h && h.elements) || []).length;
+        if (!n || !N) return nu;
+        if (window.__aiTlTimer) clearInterval(window.__aiTlTimer);
+        var i = 0, ms = Math.max(40, Math.min(250, 6000 / N));
+        window.dash_clientside.set_props("ai-timeline", {value: 0});
+        window.__aiTlTimer = setInterval(function () {
+            i += 1;
+            window.dash_clientside.set_props("ai-timeline", {value: i});
+            if (i >= N) { clearInterval(window.__aiTlTimer); window.__aiTlTimer = null; }
+        }, ms);
+        return nu;
+    }
+    """,
+    Output("ai-timeline-play", "loading"),
+    Input("ai-timeline-play", "n_clicks"),
+    State("ai-history", "data"),
+    prevent_initial_call=True,
+)
+
+# The deck mirror. Publishes this page's controls to window.DeckBridge on every
+# change; the deck reads them back with one JS call and writes through
+# set_props, so provider → model → defaults chains run exactly as by hand.
+# Page actions (generate, preset, …) live in assets/deck_bridge_ai_agent.js.
+clientside_callback(
+    """
+    function (prov, mdata, mval, edata, effort, edis, mt, seed, tl, hist, ldata, lval,
+              tickDisabled, status, pdata) {
+        if (!window.DeckBridge) return window.dash_clientside.no_update;
+        var drawing = tickDisabled === false;
+        var n = ((hist && hist.elements) || []).length;
+        return window.DeckBridge.update(location.pathname, {
+            provider: {type: "select", id: "ai-provider", value: prov, options: pdata, wrap: true, disabled: drawing},
+            model: {type: "select", id: "ai-model", value: mval, options: mdata, wrap: true, disabled: drawing},
+            effort: {type: "select", id: "ai-effort", value: effort, options: edata, disabled: !!edis || drawing},
+            max_tokens: {type: "number", id: "ai-max-tokens", value: mt, min: 1000, max: 128000, step: 4000,
+                         label: (mt || 0).toLocaleString(), disabled: drawing},
+            seed: {type: "number", id: "ai-seed", value: seed, min: 1, max: 9999, step: 1},
+            timeline: {type: "number", id: "ai-timeline", value: tl, min: 0, max: n, step: 1,
+                       label: (tl || 0) + "/" + n, disabled: !n || drawing},
+            scene: {type: "select", id: "ai-library", value: lval, options: ldata,
+                    disabled: !(ldata && ldata.length)}
+        }, (typeof status === "string" ? status : "") + (drawing ? " [drawing]" : ""));
+    }
+    """,
+    Output("ai-deck-mirror", "data"),
+    Input("ai-provider", "value"),
+    Input("ai-model", "data"),
+    Input("ai-model", "value"),
+    Input("ai-effort", "data"),
+    Input("ai-effort", "value"),
+    Input("ai-effort", "disabled"),
+    Input("ai-max-tokens", "value"),
+    Input("ai-seed", "value"),
+    Input("ai-timeline", "value"),
+    Input("ai-history", "data"),
+    Input("ai-library", "data"),
+    Input("ai-library", "value"),
+    Input("ai-stream-tick", "disabled"),
+    Input("ai-status", "children"),
+    State("ai-provider", "data"),
+    prevent_initial_call=False,
+)
+
+
+@callback(
+    Output("ai-library", "data"),
+    Input("ai-library-mount", "data"),
+    prevent_initial_call=False,
+)
+def _list_scenes(_mount):
+    """Fill the library on first render — never on the public site, where the
+    library does not exist (and must not be created)."""
+    if not ANY_KEY:
+        return []
+    try:
+        return scene_library.options()
+    except Exception:  # noqa: BLE001 - a broken DB must not break the page
+        traceback.print_exc()
+        return []
+
+
+@callback(
+    Output("ai-library", "data", allow_duplicate=True),
+    Output("ai-status", "children", allow_duplicate=True),
+    Output("ai-status", "color", allow_duplicate=True),
+    Input("ai-save-btn", "n_clicks"),
+    State("ai-history", "data"),
+    State("ai-prompt", "value"),
+    State("ai-provider", "value"),
+    State("ai-model", "value"),
+    State("ai-effort", "value"),
+    State("ai-max-tokens", "value"),
+    State("ai-seed", "value"),
+    prevent_initial_call=True,
+)
+def _save_scene(n, hist, prompt, provider, model, effort, max_tokens, seed):
+    """Save the generated scene, in draw order, with the settings that made it."""
+    if not n:
+        return no_update, no_update, no_update
+    if not ANY_KEY:
+        return no_update, "The scene library is local-only.", "blue"
+    elements = (hist or {}).get("elements") or []
+    try:
+        sid = scene_library.save(elements, prompt=prompt or "", provider=provider, model=model,
+                                 effort=effort, max_tokens=max_tokens, seed=seed)
+    except ValueError as exc:
+        return no_update, str(exc), "yellow"
+    return (scene_library.options(),
+            f"Saved scene #{sid} — {len(elements)} elements, in draw order, "
+            f"to {scene_library.db_path().name}.", "green")
+
+
+@callback(
+    Output("ai-canvas", "command", allow_duplicate=True),
+    Output("ai-status", "children", allow_duplicate=True),
+    Output("ai-status", "color", allow_duplicate=True),
+    Output("ai-prompt", "value"),
+    Input("ai-library", "value"),
+    prevent_initial_call=True,
+)
+def _load_scene(scene_id):
+    """Put a saved scene back on the canvas (and its prompt back in the box,
+    ready to iterate). The timeline picks it up like any other scene."""
+    if not scene_id or not ANY_KEY:
+        return no_update, no_update, no_update, no_update
+    row = scene_library.get(scene_id)
+    if not row:
+        return no_update, f"Scene #{scene_id} is not in the library.", "yellow", no_update
+    cmd = {
+        "id": f"lib-{scene_id}-{uuid.uuid4().hex[:8]}",
+        "type": "updateScene",
+        "payload": {"elements": row["elements"], "captureUpdate": "IMMEDIATELY"},
+    }
+    status = (f"Loaded #{row['id']}: {row['title']} — {row['model'] or '?'} · "
+              f"{row['n_elements']} elements. Scrub the timeline to replay it.")
+    return cmd, status, "gray", row["prompt"]

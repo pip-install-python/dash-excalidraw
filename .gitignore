@@ -1,3 +1,7 @@
+# The /ai-agent scene library (lib/scene_library.py) — a local SQLite of
+# generated scenes. Local-only by design; never shipped, never committed.
+data/ai_scenes.sqlite*
+
 # =====================================================================
 # Claude Code
 # =====================================================================
