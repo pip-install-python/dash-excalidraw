@@ -20,7 +20,7 @@
 # receives a 3.X security release, which is the bug, not the precision. The
 # encodings are held together by tests/test_python_version.py and, on the
 # wire, by the battery's `python_matches_declared` check.
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # PYTHONUNBUFFERED        -> stream logs straight to stdout, so Render shows
 #                            them live. Learned on email.2plot.dev: without it
